@@ -48,22 +48,12 @@ image_file noise_mask_fullscreen (
 
 image_file occluder_left (
     path = 'image/noise_mask_left.png'
-    x_size = W                  // half width
-    y_size = 2 * H              // full height
-    x_position = -W / 2         // center of left half
-    y_position = 0
-    alpha_multiplier = 1
-    deferred = NO
+    fullscreen = YES
 )
 
 image_file occluder_right (
     path = 'image/noise_mask_right.png'
-    x_size = W                  // half width
-    y_size = 2 * H              // full height
-    x_position =  W / 2         // center of right half
-    y_position = 0
-    alpha_multiplier = 0.5
-    deferred = NO
+    fullscreen = YES
 )
 
 //================================================================
@@ -97,7 +87,7 @@ group 'correctDot'{
             y_size = 3
             x_position = targetX
             y_position = targetY
-            alpha_multiplier = 1
+            alpha_multiplier = dot_alpha
     )
 }
 
@@ -108,7 +98,7 @@ group 'wrongDot'{
             y_size = 3
             x_position = targetSX
             y_position = targetSY
-            alpha_multiplier = 1
+            alpha_multiplier = dot_alpha
     )
 }
 

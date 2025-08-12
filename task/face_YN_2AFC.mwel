@@ -162,7 +162,6 @@ protocol 'Face_YN_2AFC' {
     %end
 
     update_stimulus_display ()
-        list {
         task Trials {
             state 'Initial' {
                 localTrials = 0
@@ -174,9 +173,12 @@ protocol 'Face_YN_2AFC' {
             }
 
             state 'ITI' {
-                if ( (now() - block_start_time)/1e6 >= on_duration ) {
-                    task_mode = 1 - task_mode             // toggle 1↔0
-                    block_start_time = now()              // reset block timer
+                if ( (training_stage >= 5) &&
+                    ((now() - block_start_time)/1e6 >= on_duration) ) {
+
+                    task_mode = 1 - task_mode           // toggle 1↔0
+                    block_start_time = now()
+
                     if (task_mode == 1) { 
                         report("BLOCK SWITCH: Now 2AFC") 
                         }
@@ -251,12 +253,12 @@ protocol 'Face_YN_2AFC' {
                 // If hold-only training, pay out right away
                 goto ( 
                     target = 'Reward'   
-                    when = (training_stage == 1) 
+                    when = (training_stage == 2) 
                     )
                 // Otherwise (full task), go show the face/scramble
                 goto ( 
                     target = 'Target On' 
-                    when = (training_stage != 1) 
+                    when = (training_stage != 2) 
                     )
             }
             
@@ -369,9 +371,11 @@ protocol 'Face_YN_2AFC' {
 
                 live_queue_stimulus(target_window)
                 live_queue_stimulus(nontarget_window)
-
-                queue_stimulus(correctDot)
-                queue_stimulus(wrongDot)
+                if (training_stage == 3) {
+                    dot_alpha = 0.1
+                }
+                live_queue_stimulus(correctDot)
+                live_queue_stimulus(wrongDot)
 
                 dequeue_stimulus(fixCircleStatic)
                 update_stimulus_display ()
@@ -427,9 +431,13 @@ protocol 'Face_YN_2AFC' {
             }
 
             state 'Reward' {
+                // green
+                fix_red_static = 0
+                fix_blue_static = 0
+
                 labjack_target_on = 0
 
-                dequeue_stimulus(correctDot)
+                // dequeue_stimulus(correctDot)
                 dequeue_stimulus(wrongDot)
                 update_stimulus_display ()
 
@@ -482,10 +490,6 @@ protocol 'Face_YN_2AFC' {
 
                 if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
 
-                    // red fixation
-                    fix_green_static = 0
-                    fix_blue_static = 0
-
                     index=0
                     while (index<number){
                         dequeue_stimulus(dots[index])
@@ -509,6 +513,14 @@ protocol 'Face_YN_2AFC' {
 
                 if (id_bad==5 || id_bad==6){ // fixoff response
 
+                    // red fixation
+                    fix_green_static = 0
+                    fix_blue_static = 0
+
+                    dequeue_stimulus(correctDot)
+                    // dequeue_stimulus(wrongDot)
+                    update_stimulus_display ()
+
                     labjack_cue_on = 1
 
                     action/play_sound(failure_sound)
@@ -517,7 +529,7 @@ protocol 'Face_YN_2AFC' {
                 
                 start_timer (
                     timer = timer_timeout
-                    duration = timeout // 2000
+                    duration = 200 // 2000
                     duration_units = ms
                     )
                 timer_expired (
@@ -543,6 +555,8 @@ protocol 'Face_YN_2AFC' {
                 fix_red_static = 1
                 fix_green_static = 1
                 fix_blue_static = 1
+
+                dot_alpha = 1
 
                 error_line_green = 1
                 error_line_blue = 1
@@ -590,23 +604,4 @@ protocol 'Face_YN_2AFC' {
             }
         } // End of Task 'Trials'
 
-        task Block_Switcher {
-            state 'Switching_Loop' {
-                wait(on_duration) // Wait for 30 seconds
-                
-                if (task_mode == 1) {
-                    task_mode = 0
-                    report("BLOCK SWITCH: Now running YN task (mode 0)")
-                } 
-                else {
-                    task_mode = 1
-                    report("BLOCK SWITCH: Now running 2AFC task (mode 1)")
-                }
-                
-                goto('Switching_Loop')
-            }
-        } // End of Task 'Block_Switcher'
-
-    } // End of parallel list
-
-}
+    } 
