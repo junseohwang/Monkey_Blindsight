@@ -1,0 +1,535 @@
+var data_file = ""
+
+var var_debug = 0
+group cue{ // purple grape
+    var cue_red=.5 // purple [0.5 0 1]
+    var cue_green=0
+    var cue_blue=1
+
+    var circle_size=0.5
+    var within_distance=sqrt(pow(circle_size,2)-pow((circle_size/2),2))/(1+sin(30/180*pi())) // 0.288675
+
+    var cue_radius= 8 // 6*circle_size// 8*circle_size// 2*circle_size+object_sz // relative to target/object
+    var cue_theta=0
+    var cue_nTheta=4
+    var cue_id=0
+
+    var cueX = 0
+    var cueY = 0
+
+    var cueX_final = 0
+    var cueY_final = 0
+    var cue_alpha=1
+}
+
+group occluder{
+
+    var occluder_red = .5
+    var occluder_green = .5
+    var occluder_blue = .5
+    var occluder_size = 2
+    var occluder_alpha = 1
+
+    var nOccluder =  4// 8 // 4 // # occluder
+
+    var occluderX=[1:nOccluder]
+    var occluderY=[1:nOccluder]
+}
+group occluder_target{ // just for target fixation window
+    var on_occluder_target0=false
+    var on_occluder_target1=false
+    var on_occluder_target2=false
+    /*
+    var on_occluder_target3=false // # occluder
+    var on_occluder_target4=false
+    var on_occluder_target5=false
+    var on_occluder_target6=false
+    */
+
+    var on_occluder_target=[1:(nOccluder-1)] // does not work
+    var occluder_targetX = [1:(nOccluder-1)]
+    var occluder_targetY = [1:(nOccluder-1)]
+}
+
+group wedge {
+    var innermask_size = 3
+    var checkerboard_size = 25 // 15
+    var checkerboard_rotation_speed = 90
+
+    var wedge_duration = 5
+    var wedge_sizex = 60 // (float)(30)
+    var wedge_sizey = 60 // (float)(30)
+    var wedge_rotation = 0 // updated by 15 deg per 5sec
+    var wedge_rotation_speed = 15 // deg  // 24 sec for 360 deg
+    var background_color =0.22
+
+}
+
+group Number {
+    var number=1
+    var chosen_number = 0
+    var number_id=0
+
+    var number_set_sampled= 0
+
+    %ifdef monkey
+        var number_set=[2, 5]
+
+        var n_number_set = size(number_set) // should be bigger than 5 (see set_stimuli.py)
+        var number_min = number_set[0]
+        var number_max = number_set[n_number_set-1]
+        var n_number_level = number_max - number_min + 1
+
+        var number_range=[1, 7] // for number line
+    %end
+
+    %ifdef human
+        var number_set=[2,3,4,5,6,7,8,9,10,11,12,13,14,15,17,18,20,22,24,27,29,32]
+        // np.round(2 ** np.linspace(np.log2(2), np.log2(32), 31))
+
+        var n_number_set = size(number_set)
+        var number_min = number_set[0]
+        var number_max = number_set[n_number_set-1]
+        var n_number_level = number_max - number_min+1
+
+        var number_range=[0, 32] // for number line
+    %end
+
+    var rdlim = [12,48]
+    var rflim = [160,640]
+
+    var relative_target_x = 0
+}
+
+group number_keypad{
+    // defined in keyboard.mwel
+
+    var id_digit=1 // *10 if 1, *1 if 2
+    var number_key_input = [-1,-1] // assume two digits
+
+    var number_key_sz = 3
+    var number_key_xoffset = 0.5
+    var number_key_yoffset = 2
+
+    var inter_key_delay = 0 // 100
+
+    var keypad_red = 1
+    var keypad_green = 1
+    var keypad_blue = 1
+}
+
+group Number_line{
+    var line_x = 0 // center position
+    var line_y = 8 // center position
+
+    var line_size = 16
+    var line_theta = 0
+
+    var line_x_left = line_x-line_size/2*cos(line_theta)
+    var line_x_right = line_x+line_size/2*cos(line_theta)
+
+    var line_y_up = line_y+line_size/2*sin(line_theta)
+    var line_y_down = line_y-line_size/2*sin(line_theta)
+
+    var responseX = 0 // eye position after responseRegister
+    var responseY = 0
+
+    var unit_size = line_size/(number_range[1]-number_range[0])
+}
+
+group target_window{ // just for target fixation window
+    // --- Core Position Variables ---
+    // These are calculated by your macros on every trial to set the
+    // locations of the correct and incorrect response windows.
+    var targetX = 0
+    var targetY = 0
+    var targetSX = 0
+    var targetSY = 0
+
+    // --- Appearance Properties ---
+    // These control how the response cues look on screen.
+    var target_eccentricity = 8  // Renamed from target_radius for clarity. Controls distance from center.
+    var target_sz = 0.5          // The visible size of the response cues (e.g., correctDot).
+    var target_red = 1           // Red color component (0-1).
+    var target_green = 1         // Green color component (0-1).
+    var target_blue = 1          // Blue color component (0-1).
+    var target_alpha = 0.0       // Visibility (0.0 = invisible, 1.0 = fully visible).
+
+    // --- Eye Tracker Trigger Properties ---
+    // These control the invisible "hotspot" for the eye tracker.
+    var target_win = 2.5           // The size (diameter) of the invisible eye-tracking window.
+    var on_target = 0            // Flag that becomes true when gaze enters the correct window.
+    var on_nontarget = 0         // Flag that becomes true when gaze enters the incorrect window.
+
+    var target_id = 0           // Used in the 2AFC task to randomly determine which side is occluded.
+    var targetS_id = 0
+    var target_radius = 10
+    var nTarget = 4
+    var target_theta = 0
+    var targetS_theta = 0
+    var targetX_final = 0
+    var targetY_final = 0
+    var target_alpha_memory=0.01
+
+    var delta_alpha=0
+    var deflaut_alpha = 0
+}
+
+group error_line_window{
+    var error_lineX = 0
+    var error_lineY = 0
+
+    var error_line_szX = 0
+    var error_line_szY = 0.1
+
+    var error_line_red=1
+    var error_line_green=1
+    var error_line_blue=1
+
+}
+
+group Dots{
+    var dot_sz = 3
+    var dot_sz0 = 0
+
+    var dot_red=[1:number_set[n_number_set-1]]
+    var dot_green=[1:number_set[n_number_set-1]]
+    var dot_blue=[1:number_set[n_number_set-1]]
+
+    var dotX=[1:number_set[n_number_set-1]]
+    var dotY=[1:number_set[n_number_set-1]]
+
+    var dotX0=[1:number_set[n_number_set-1]]
+    var dotY0=[1:number_set[n_number_set-1]]
+
+    var dotX_final = [1:number_set[n_number_set-1]] // 0
+    var dotY_final = [1:number_set[n_number_set-1]] // 0
+
+    var dotXpos = 0
+    var dotYpos = 0
+
+    var dot_alpha=1
+    var dot_alpha0=1
+    var dot_alpha_memory=0 // 0.01
+
+    var dot_convexhull_radius = 10
+    var dot_overlap_threshold = 0.5
+
+}
+
+group banana{ // banana
+
+    var object_red=1 // oragne [1 .5 0]
+    var object_green=.5
+    var object_blue=0
+
+    var object_sz = 3
+    var object_theta=-45
+
+    var objectX = 0
+    var objectY = 0
+
+    var objectsX0=[1:number_set[n_number_set-1]]
+    var objectsY0=[1:number_set[n_number_set-1]]
+
+    var objectX_final = 0
+    var objectY_final = 0
+
+    var object_offsetY = 0.5
+    var object_alpha=1
+    var object_alpha0=1
+    var object_alpha_memory=0 // 0.01
+    var elapsed_time2 = 0
+
+    var object_convexhull_radius = 10
+    var object_overlap_threshold = 0.5
+
+    // temporary
+    var sample_theta = 0
+    var sample_radius = 0
+    var sampleX = 0
+    var sampleY = 0
+
+    var p_memoryTimeDur=0.0001 // 1 // staircase for ramp-down duration
+    var delta_memoryTimeDur=0
+    var p_memoryTimeDurMin=0.0001
+    var p_memoryTimeDurMax=1
+}
+
+group overlap_obj{
+
+    var overlap_red=1
+    var overlap_green=0
+    var overlap_blue=0
+
+    var overlap_sz = 3
+
+    var overlapX = 0
+    var overlapY = 0
+    
+
+    var overlapX_final = 0
+    var overlapY_final = 0
+
+    var overlap_alpha=1
+}
+
+group hint_obj{
+
+    var hint_obj_red=1
+    var hint_obj_green=0
+    var hint_obj_blue=0
+
+    var hint_obj_sz = 3
+
+    var hint_objX = 0
+    var hint_objY = 0
+
+    var hint_objX_final = 0
+    var hint_objY_final = 0
+
+    var hint_alpha=0.2
+}
+
+group memory_objs{
+
+    var memory_obj_red=1
+    var memory_obj_green=0
+    var memory_obj_blue=0
+
+    var memory_obj_sz = 3
+
+    var memory_objX = 0
+    var memory_objY = 0
+
+    var memory_objX_final = 0
+    var memory_objY_final = 0
+
+    var memory_obj_alpha=1
+}
+
+
+group Fixation {
+    var fixY = 0 (groups = Fixation)
+    var fixX = 0 (groups = Fixation)
+    var fixY_offset=0 // 0.8 // to minimize overlap with cue objects
+    
+    var tFixbreak = 0
+    var flagFixbreak = 0
+    var flagFixbreak_fix = 0
+    var flagFixbreak_memory = 0
+    var fixBreakDur = 0
+
+    var fix_win = 2 (
+        groups = Fixation
+        persistant = 1
+        )
+    var fix_sz = 0.25 (groups = Fixation)
+
+    var fixWaitDur = 10000 (groups = Fixation)
+    var fixOn = 0 (groups = Fixation)
+
+    var fix_red = 1 (groups = Fixation)
+    var fix_green = 1 (groups = Fixation)
+    var fix_blue = 1 (groups = Fixation)
+
+    var fix_red_static = 1  (groups = Fixation)
+    var fix_green_static = 1 (groups = Fixation)
+    var fix_blue_static = 1 (groups = Fixation)
+
+    var fix_alpha = 1
+
+    var fix_dist = 5 //added SP 240201
+    var fix_dist_max_x = 20
+    var fix_dist_max_y = 15
+    var nFix = 1 //4//8//999 - added by SP 240201
+
+    var pursuitTheta = -90 (groups = Fixation) // down; if 0, horizontal
+    var nRep = 1 (groups = Fixation) // 3
+    var on_fix_dyn = 0 (groups = Fixation)
+    var on_fix_static = 0 (groups = Fixation)
+}
+
+group Time {
+    //time stamps for eye movement analysis
+    var tStart = 0
+    var tFix = 0
+
+    var tNumberOn = 0
+    var tNumberOff = 0
+
+    var tTargetOn = 0
+    var tTargetOff = 0
+    var tFlickerOff = 0
+    var tFixOff = 0
+    var tOverlap = 0
+    var tResponse = 0
+    var tKeyPress = []
+    var tRew = 0
+    var tEnd = 0
+    var flag_response=0 // to count down timer after off from fixation
+    var tResponse0=0
+    var response_time = 0
+    var t_checkerboard_on = 0
+
+    var end_task=0
+}
+
+group Duration {
+    // --- Randomized Trial Event Timings ---
+    var fixTimeDur = 0.0001
+    var fixTimeDurInit = 2500
+    var fixTimeDurMean = 250 // 250
+    var fixTimeDurMin = 500 // 3000
+    //var updur = 20
+    var downdur = 10
+
+    var targetTimeDur = 250
+    var targetTimeDurMean = 250
+    var targetTimeDurMin = 2000 // 500 // 250
+
+    var maskTimeDur = 250
+    var maskTimeDurMean = 250
+    var maskTimeDurMin = 250
+
+    var occluderTimeDur = 0 // not used
+    var occluderTimeDurMean = 250
+    var occluderTimeDurMin = 500 // 250
+
+    // --- Block & Run Control (fMRI) ---
+    var run_duration = 10    // The total duration for an entire experimental run.
+    var on_duration = 30     // The duration for each task block before switching (e.g., between 2AFC and YN).
+    var off_duration = 30    // The duration for a break or "off" period between blocks of trials.
+    var block_start_time = 0
+
+    var break_duration = 30
+    var n_cycle = 6
+    var i_trial = 0
+
+    // --- Response Timings ---
+    var targetWait = 5000//20000// 5000//10000 // The maximum time allowed for the subject to make a choice.
+    var responseRegister = 100                 // The brief time the subject must hold gaze on a target to confirm their choice.
+
+    // --- Inter-Trial & Penalty Timings ---
+    var ITI = 500          // The blank time between one trial ending and the next beginning.
+    var NoFixWaitDur = 2000 // The timeout duration if the subject fails to acquire initial fixation.
+    var timeout = 60        // The general timeout duration for most other errors.
+    
+    var numberTimeDur = 0.0001 // daseulgi 500 
+    var numberTimeDurInit = 2500
+    var numberTimeDurMean = 250 // 250
+    var numberTimeDurMin = 500 // 3000
+    var extraDur = 0
+
+    var memoryTimeDur = 0.0001 // to prevent division by zero
+    var memoryTimeDurMean = 250
+    var memoryTimeDurMin = 1650
+
+    var flickerTimeDur = 0.0001 // to prevent division by zero
+    var flickerTimeDurMean = 100
+    var flickerTimeDurMin = 500
+
+    var fixAfterDur = 0.0001
+    var fixAfterDurMean = 100
+    var fixAfterDurMin = 100
+    
+
+    var overlapTimeDur = 0.0001
+    var overlapDurMean = 250
+    var overlapDurMin = 1650
+
+    var targetWait0 = 5000//20000 // 5000//10000
+
+    var post_reward_delay=500
+    var inter_reward_delay=300
+
+    var cueToGoDur = 0 // not used
+    var cueToGoDurMean = 250
+    var cueToGoDurMin = 500 // 250
+
+    var incorrectDur = 5000
+
+    var id_ramp_opacity= 0 // 1 // if (id_ramp_opacity==0), object_alpha=object_alpha_memory
+}
+
+group Reward {
+    var reward_line = 0 (groups = Reward)
+    var rewardDur = 150 // 100 // 25 // 15 // 70 (groups = Reward)
+    var rewardDurMin = 150
+    var rewardDurMax = 300 // 100
+    var bonusRewDur = 10 // 15  (groups = Reward)
+    var rewardBonus = 10  (groups = Reward)
+
+    var reward_threshold_error = 4
+    var reward_count=0
+}
+
+group Sound {
+    var soundon = 1
+    var startsoundDur = 0
+}
+
+group Global {
+    // --- Task Mode Control ---
+    var task_mode = 1 (groups = Trial)  // The master switch for the experiment. Can be '2AFC' or 'YN'.
+    var stim_id = 0 (groups = Trial)         // Used in 2AFC for correct target side AND in YN for face/scrambled trial type.
+    var training_stage = 3               // 0=touch-only, 1=hold-only, 2=hold fixation even when the face appear, 4=full task
+
+    // --- Session Control & Counters ---
+    var pstop = 0 (groups = Trial)           // A flag you can manually set to 1 to gracefully stop the experiment.
+    var CorrectTrials = 0 (groups = Trial)   // The main counter for the total number of successful trials in the session.
+    var IncorrectTrials = 0 (groups = Trial) // The main counter for the total number of failed trials.
+    var localTrials = 0 (groups = Trial)     // A counter for how many trials have been started.
+    var trialNum = 1e6 (groups = Trial)      // The total number of correct trials to run before the experiment ends automatically.
+    
+    // --- Error Tracking ---
+    var id_bad = 0 (groups = Trial)          // Your primary error code. The script sets this to a different number in each state.
+
+    var startTrial = 0 (groups = Trial)
+    var endTrial = 0 (groups = Trial)
+    var CorrectTrialsTarget = [0:(n_number_set-1)] (groups = Trial)
+    var IncorrectTrialsTarget = [0:(n_number_set-1)] (groups = Trial)
+    var consecutive_bad_trials = 0 (groups = Trial)
+    var consecutive_correct_trials = 0 (groups = Trial)
+    //var cons_block_num = 0 (groups = Trial) //number of consecutive trial blocks that monkey got correct
+    //var bonus_constrial = 3 //number of consecutive trials that you need to get correct to gain bonus rwd
+    var CorrectTrialsCueFirst = 0 (groups = Trial)
+    var CorrectTrialsCueFirstTarget = [0:(nTarget*cue_nTheta-1)] (groups = Trial)
+}
+
+group Photodiode{
+    var photodiode_red = 1//.5
+    var photodiode_green = 1//.5
+    var photodiode_blue = 1//.5
+    var photodiode_size = 2.5
+    var photodiodeX = -20 // -21.88 // top left
+    var photodiodeY = 11.7 // 12.8
+
+    var photodiode_input = 0
+}
+
+group Labjack{
+    var labjack_target_on = 0
+    var labjack_cue_on = 0 // now tied to labjack_fix_off
+    var labjack_fix_off=0
+    var labjack_fixation_on=0
+    var t_labjack_cue_on=0
+}
+
+group Motion {
+    var id_cue_motion = 0 // 1 // if 0, no cue motion
+    var id_linear_circular = 2 // if 0, linear; if 1, circular(radial); if 2, self-motion
+
+    var motion_direction = 0 // -1 for CW 1 for CCW, if circular; angle [0 90 180 270] if linear
+    var angle_rotation=0
+    var angle_rotation0=0
+    var elapsed_time = 0
+    var p_time = 0
+
+    var start_time = 0
+    var end_time = 0
+    var tmp=0
+    var index=0
+
+    var nAngle0=4 // initial angle from final location 120/nAngle0
+}

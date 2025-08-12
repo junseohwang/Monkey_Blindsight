@@ -1,0 +1,415 @@
+
+/*  
+Eye fixation task 
+    based on NE_dot task
+    24.02.01 - added sound
+
+   */
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'monkey' // 'human'
+//%define human
+%define monkey
+
+%define laptop
+// %define psychophysics
+//%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+//var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+sound/wav_file start_sound ('sounds/start.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+group Fixation {
+    var fix_theta = 0 (groups = Fixation)
+}
+
+group Matlab {
+    var sync = 0 (groups = Matlab)
+    var Nback = 100 (
+        groups = Matlab
+        persistant = 1
+        )
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define sample_fix_trial ()
+
+    // sample fixation point
+    
+    if (nFix<999){
+        //fix_id = disc_rand(0,nFix-1) //0 1 2 3
+        fix_theta = disc_rand(0,nFix-1)*(360/nFix)
+    }
+    if (nFix==999){
+        //fix_theta = rand(0,1) * 360
+        fixX = fix_dist_max_x - disc_rand(0,fix_dist_max_x*2)
+        fixY = fix_dist_max_y - disc_rand(0,fix_dist_max_y*2)
+    }
+
+    if (nFix > 1 && nFix<999){
+        fixX = cos(fix_theta*pi()/180)*fix_dist
+        fixY = sin(fix_theta*pi()/180)*fix_dist
+    }
+    
+
+%end
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocols
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'EyeFixation' {
+    start_device_io (eye_tracker)
+
+    run_python_string('stim = SetStimuli()')
+
+    //start_io_device (labjack)
+
+    update_stimulus_display ()
+    task Trials {
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+            tmp=0
+            while (tmp<(n_number_set)){ // count # correct trials for each number
+                CorrectTrialsTarget[tmp]=0
+                IncorrectTrialsTarget[tmp]=0
+                tmp=tmp+1
+            }
+
+            sample_fix_trial () // durations & target location
+
+            goto ('Sound On')
+
+            
+        }
+
+        state 'Sound On'{
+            if (soundon){
+                action/play_sound(start_sound)
+            }
+            start_timer (
+                timer = startsoundWait
+                duration = startsoundDur
+                duration_units = ms
+            )
+                timer_expired (
+                target = 'Fix On'
+                timer = startsoundWait
+            )
+        }
+
+        state 'Fix On' {
+            //MATLAB
+            sync=0
+            sync=1
+
+            
+            
+            live_queue_stimulus(fixCircleStatic)
+
+            update_stimulus_display ()
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur // 10000
+                duration_units = ms
+                )
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static
+                )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+                )
+        }
+
+        state 'Static Fix' {
+            report ('localTrials = $localTrials')
+            localTrials = localTrials+1
+
+            tFix = now()
+            id_bad = 1
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur // fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+                duration_units = ms
+                )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+                )
+            timer_expired (
+                target = 'FixOff' // pass 
+                timer = StaticFixWait
+                )
+        }
+
+        state 'FixOff' {
+            id_bad = 5
+
+            live_queue_stimulus(target_window)
+            dequeue_stimulus(fixCircleStatic)
+            update_stimulus_display ()
+
+            tFixOff= now() // next_frame_time()
+
+            labjack_fix_off=1
+
+            goto (
+                target = 'Reward'
+                )
+        }
+
+        state 'Reward' {
+
+            labjack_target_on = 0
+            
+            if (soundon){
+                action/play_sound(success_sound)
+            }
+            
+
+            report ('Success!: CorrectTrials = $CorrectTrials')
+            tRew = now()
+
+            queue_stimulus(photodiode)
+
+            CorrectTrialsTarget[number_id] = CorrectTrialsTarget[number_id]+1
+            CorrectTrials = CorrectTrials+1
+            reward_line = true
+
+            start_timer (
+                timer = GreenTime
+                duration = rewardDur // 200
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
+                )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+            reward_line = false
+            endTrial = endTrial+1
+
+            elapsed_time = 0
+            elapsed_time2 = 0 // for reducing contrast
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            reward_count=0
+            //rewardDur = -1
+
+            dequeue_stimulus (target_window)
+            dequeue_stimulus (fixCircleStatic)
+            dequeue_stimulus(photodiode)
+            dequeue_stimulus(green_disappear)
+
+
+            id_bad = 0
+
+            flag_response=0
+            targetWait=targetWait0
+
+            update_stimulus_display ()
+            labjack_target_on = 0
+            labjack_fix_off = 0
+            labjack_cue_on = 0
+
+            goto (
+                target = 'Exit System'
+                when = CorrectTrials >= trialNum
+                )
+            goto (
+                target = 'Exit System'
+                when = pstop
+                )
+            goto (ITI)
+        }
+        state ITI {
+
+            sample_fix_trial () // duration and target locations
+
+            // override eye_x eye_y to reset trigger_flag
+            // eye_x=100
+
+            start_timer (
+                timer = fix_pur_ITI
+                duration = ITI // 500
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Sound On'
+                timer = fix_pur_ITI
+                )
+        }
+
+        state 'Failure to fixate' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            start_timer (
+                timer = NoFixWait
+                duration = NoFixWaitDur  // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+                )
+        }
+
+        state 'Bad' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
+
+                // red fixation
+                fix_green_static = 0
+                fix_blue_static = 0s
+
+                if (soundon){
+                    action/play_sound(failure_sound)
+                }
+                
+
+                dequeue_stimulus (target_window)
+                // dequeue_stimulus (dots)
+                // dequeue_stimulus (object_disappear)
+                dequeue_stimulus(photodiode)
+                update_stimulus_display ()
+                labjack_target_on = 0
+                labjack_cue_on = 0
+
+            }
+
+            if (id_bad==5 || id_bad==6){ // fixoff response
+
+                dequeue_stimulus(number_line)
+                dequeue_stimulus (target_window)
+                update_stimulus_display ()
+
+                labjack_cue_on = 1
+
+                if (soundon){
+                    action/play_sound(failure_sound)
+                }
+                
+
+            }
+
+            start_timer (
+                timer = timer_timeout
+                duration = timeout // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = timer_timeout
+                )
+        }
+
+
+        state 'Exit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}

@@ -1,0 +1,612 @@
+/*  
+Face 2AFC YN task
+
+
+
+
+   */
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'human'
+//%define human
+%define monkey
+
+// %define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+// var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file('set_stimuli.py')
+
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+sound/wav_file start_sound ('sounds/start.wav')
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define sample_2afc_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
+    // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
+    
+    // Randomly determines the correct target side
+    stim_id = disc_rand(0, 1)        // 1 for left-correct, 0 for right-correct
+
+    // Set target positions based on eccentricity in degrees of visual angle.
+    // If stim_id = 1 (left), targetX becomes negative.
+    // If stim_id = 0 (right), targetX becomes positive.
+    targetX = (1 - 2 * stim_id) * target_eccentricity
+    targetY = 0
+    targetSX = -targetX
+    targetSY = 0
+%end
+
+%define sample_yn_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
+    // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
+
+    // Randomly determines the correct target side
+    stim_id = disc_rand(0, 1)        // 1 for left-correct, 0 for right-correct
+    // Randomly determine the occluded side
+    target_id = disc_rand(0, 1)      // 1 for left-occluded, 0 for right-occluded
+
+    if (stim_id == 1) { 
+        targetX = -target_eccentricity // Correct response for "Face" is "Yes" (Left)
+        targetSX = target_eccentricity
+    } 
+    if (stim_id == 0) {
+        targetX = target_eccentricity  // Correct response for "Scrambled" is "No" (Right)
+        targetSX = -target_eccentricity
+    }
+    targetY = 0
+    targetSY = 0
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocols
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'Face_YN_2AFC' {
+    start_device_io (eye_tracker)
+
+    %ifdef monkey_ephys
+        start_io_device (labjack)
+    %end
+
+    update_stimulus_display ()
+        list {
+        task Trials {
+            state 'Initial' {
+                localTrials = 0
+                CorrectTrials = 0
+                IncorrectTrials = 0
+                task_mode = 1
+                block_start_time = now()
+                goto ('ITI')
+            }
+
+            state 'ITI' {
+                if ( (now() - block_start_time)/1e6 >= on_duration ) {
+                    task_mode = 1 - task_mode             // toggle 1↔0
+                    block_start_time = now()              // reset block timer
+                    if (task_mode == 1) { 
+                        report("BLOCK SWITCH: Now 2AFC") 
+                        }
+                    if (task_mode == 0) { 
+                        report("BLOCK SWITCH: Now YN") 
+                        }
+                }
+    
+                // Call the correct setup macro based on the current task mode
+                if (task_mode == 1) { // 1 = 2AFC
+                    sample_2afc_trial()
+                } 
+                if (task_mode == 0) { // 0 = YN
+                    sample_yn_trial()
+                }
+                wait(ITI*1000)
+                goto ('Fix On')
+            }
+
+            state 'Fix On' {
+
+                live_queue_stimulus(fixCircleStatic)
+                update_stimulus_display ()
+
+                tStart = now()
+                startTrial = 1
+                id_bad = 0
+
+                start_timer (
+                    timer = fixWait 
+                    duration = fixWaitDur
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Reward'
+                    when   = (on_fix_static && (training_stage == 0))
+                )
+                // Normal path (hold or full task): proceed to Static Fix
+                goto (
+                    target = 'Static Fix'
+                    when   = (on_fix_static && (training_stage != 0))
+                )
+                timer_expired (
+                    target = 'Failure to fixate' 
+                    timer = fixWait
+                    )
+            }
+
+            state 'Static Fix' {
+                report ('localTrials = $localTrials')
+                localTrials = localTrials+1
+
+                tFix = now()
+                id_bad = 1
+
+                start_timer (
+                    timer = StaticFixWait
+                    duration = fixTimeDur // fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'After Hold'
+                    timer = StaticFixWait
+                    )
+            }
+
+            state 'After Hold' {
+                // If hold-only training, pay out right away
+                goto ( 
+                    target = 'Reward'   
+                    when = (training_stage == 1) 
+                    )
+                // Otherwise (full task), go show the face/scramble
+                goto ( 
+                    target = 'Target On' 
+                    when = (training_stage != 1) 
+                    )
+            }
+            
+            state 'Target On' {
+                %ifdef monkey_ephys
+                    queue_stimulus(photodiode)
+                %end
+
+                index=0
+                if (task_mode == 1) { // 1 = 2AFC
+                    queue_stimulus(monkey_face)
+                    queue_stimulus(monkey_scrambled)
+                }
+                
+                if (task_mode == 0) { // 0 = YN
+                    if (stim_id == 1) { 
+                        queue_stimulus(monkey_face) 
+                        queue_stimulus(monkey_scrambled) 
+                        }
+                    if (stim_id == 0) { 
+                        queue_stimulus(monkey_face) 
+                        queue_stimulus(monkey_scrambled) 
+                        }
+                    if (target_id == 1) { 
+                        queue_stimulus(occluder_left) 
+                        }
+                    if (target_id == 0) { 
+                        queue_stimulus(occluder_right) 
+                        }
+                }
+                
+                update_stimulus_display ()
+                id_bad = 2
+
+                start_timer (
+                    timer = timer_target_on
+                    duration = targetTimeDur
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'Post Target Router'
+                    timer  = timer_target_on
+                )
+            }
+
+            state 'Post Target Router' {
+                // Stage 3 training: keep stimulus up and go straight to choice
+                goto ( 
+                    target = 'Fix Off' 
+                    when = (training_stage == 3 && task_mode == 1) 
+                    )
+
+                // Otherwise, run your normal pipeline (mask and then choice)
+                goto ( 
+                    target = 'Noise Mask' 
+                    when = (training_stage != 3 || task_mode != 1) 
+                    )
+            }
+
+            state 'Noise Mask' {
+                id_bad = 3
+
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                
+                queue_stimulus(noise_mask_fullscreen)
+                live_queue_stimulus(fixCircleStatic)
+
+                update_stimulus_display()
+
+                start_timer (
+                    timer = timer_mask_on
+                    duration = maskTimeDur
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'Post Stimulus Router'
+                    timer = timer_mask_on
+                    )
+            }
+
+            state 'Post Stimulus Router' {
+                // Training Stage 2: pay out for holding fixation through stim+mask
+                goto ( 
+                    target = 'Reward' 
+                    when = (training_stage == 2)
+                    )
+
+                // Full task: proceed to choice phase
+                goto ( 
+                    target = 'Fix Off'
+                    when = (training_stage != 2) 
+                    )
+            }
+            
+            state 'Fix Off' {
+                id_bad = 5
+
+                dequeue_stimulus(noise_mask_fullscreen)
+
+                live_queue_stimulus(target_window)
+                live_queue_stimulus(nontarget_window)
+
+                queue_stimulus(correctDot)
+                queue_stimulus(wrongDot)
+
+                dequeue_stimulus(fixCircleStatic)
+                update_stimulus_display ()
+
+                tFixOff= now()
+
+                labjack_fix_off=1
+
+                goto (
+                    target = 'Response'
+                    )
+            }
+
+            state 'Response'{
+                id_bad = 6
+
+                start_timer (
+                    timer = timer_response
+                    duration = targetWait // 5000
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'post_response'
+                    when = on_target
+                    )
+                goto (
+                    target = 'Bad'
+                    when = on_nontarget
+                    )
+                timer_expired (
+                    target = 'Bad'
+                    timer = timer_response
+                    )
+            }
+
+            state 'post_response' {
+                id_bad = 7
+                tResponse= now()
+
+                start_timer (
+                    timer = timer_post_response
+                    duration = responseRegister // 100
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Response' // 'Failure to fixate'
+                    when = !on_target
+                    )
+                timer_expired (
+                    target = 'Reward'
+                    timer = timer_post_response
+                    )
+            }
+
+            state 'Reward' {
+                labjack_target_on = 0
+
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(wrongDot)
+                update_stimulus_display ()
+
+                action/play_sound(success_sound)
+
+                report ('Success!: CorrectTrials = $CorrectTrials')
+                tRew = now()
+
+                %ifdef monkey_ephys
+                    queue_stimulus(photodiode)
+                    update_stimulus_display ()
+                %end
+
+                CorrectTrials = CorrectTrials+1
+
+                pulse ( // micro seconds
+                    variable = reward_line
+                    duration = rewardDur*1000
+                    )
+
+                start_timer (
+                    timer = GreenTime
+                    duration = rewardDur // 200
+                    duration_units = ms
+                    )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = GreenTime
+                    )
+            }
+
+            state 'Failure to fixate' {
+                report ('Trial Failed: id_bad = $id_bad')
+                tResponse= now()
+
+                start_timer (
+                    timer = NoFixWait
+                    duration = NoFixWaitDur  // 2000
+                    duration_units = ms
+                    )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = NoFixWait
+                    )
+            }
+            
+            state 'Bad' {
+                report ('Trial Failed: id_bad = $id_bad')
+                tResponse= now()
+
+                if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
+
+                    // red fixation
+                    fix_green_static = 0
+                    fix_blue_static = 0
+
+                    index=0
+                    while (index<number){
+                        dequeue_stimulus(dots[index])
+                        index=index+1
+                    }
+
+                    dequeue_stimulus(monkey_face)
+                    dequeue_stimulus(monkey_scrambled)
+                    dequeue_stimulus(occluder_left)
+                    dequeue_stimulus(occluder_right)
+                    dequeue_stimulus(noise_mask_fullscreen)
+                    dequeue_stimulus(target_window)
+                    dequeue_stimulus(nontarget_window)
+                    dequeue_stimulus(fixCircleStatic)
+                    update_stimulus_display ()
+
+                    update_stimulus_display ()
+                    labjack_target_on = 0
+                    labjack_cue_on = 0
+                }
+
+                if (id_bad==5 || id_bad==6){ // fixoff response
+
+                    labjack_cue_on = 1
+
+                    action/play_sound(failure_sound)
+
+                }
+                
+                start_timer (
+                    timer = timer_timeout
+                    duration = timeout // 2000
+                    duration_units = ms
+                    )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = timer_timeout
+                    )
+            }
+
+            state 'End Trial' {
+                tEnd = now()
+
+                endTrial = endTrial+1
+
+                // reset stimulus
+                object_red=1 // target_red=1
+                object_green=0.5
+                object_blue=0 // target_blue=1
+                object_alpha = 1 // target_alpha = 1
+
+                elapsed_time = 0
+                elapsed_time2 = 0 // for reducing contrast
+
+                fix_red_static = 1
+                fix_green_static = 1
+                fix_blue_static = 1
+
+                error_line_green = 1
+                error_line_blue = 1
+
+                reward_count=0
+                //rewardDur = -1
+
+                dequeue_stimulus(photodiode)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(nontarget_window)
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(wrongDot)
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                dequeue_stimulus(noise_mask_fullscreen)
+                dequeue_stimulus(fixCircleStatic)
+                update_stimulus_display()
+                
+                id_bad = 0
+
+                flag_response=0
+                targetWait=targetWait0
+
+                update_stimulus_display ()
+                labjack_target_on = 0
+                labjack_fix_off = 0
+                labjack_cue_on = 0
+
+                goto (
+                    target = 'Exit System'
+                    when = CorrectTrials >= trialNum
+                    )
+                goto (
+                    target = 'Exit System'
+                    when = pstop
+                    )
+                goto (ITI)
+            }
+            
+            state 'Exit System' {
+                report ('Leaving state system')
+                yield ()
+            }
+        } // End of Task 'Trials'
+
+        task Block_Switcher {
+            state 'Switching_Loop' {
+                wait(on_duration) // Wait for 30 seconds
+                
+                if (task_mode == 1) {
+                    task_mode = 0
+                    report("BLOCK SWITCH: Now running YN task (mode 0)")
+                } 
+                else {
+                    task_mode = 1
+                    report("BLOCK SWITCH: Now running 2AFC task (mode 1)")
+                }
+                
+                goto('Switching_Loop')
+            }
+        } // End of Task 'Block_Switcher'
+
+    } // End of parallel list
+
+}

@@ -1,0 +1,173 @@
+/********************  Global data-file stub  *********************/
+var data_file = ""
+var var_debug = 0
+
+
+/**********************  DISPLAY  ********************************/
+group Display {
+    var scr_px_x      = 1920
+    var scr_px_y      = 1080
+    var view_dist_cm  = 57        // for deg↔px
+    var ppmm          = 0.27      // mm per pixel
+}
+
+
+/**********************  FIXATION  *******************************/
+group Fix {
+    /* spatial */
+    var fixX              = 0
+    var fixY              = 0
+    var fixY_offset       = 0
+    var fix_win           = 2.0         // radius (deg);               used directly in task
+    var fix_sz            = 1           // diameter (deg)
+
+    /* timing — names **exactly** as in task */
+    var fixWaitDur        = 1200        // max time to acquire fixation (ms)
+    var fixTimeDurMean    = 400         // mean hold (ms)
+    var fixTimeDurMin     = 200         // min  hold (ms)
+    var fixTimeDur        = 0           // gets sampled each trial
+
+    /* colour & alpha */
+    var fix_red_static    = 1
+    var fix_green_static  = 1
+    var fix_blue_static   = 1
+    var fix_alpha         = 1
+
+    /* eye-trigger flags read by fixation_point stimulus */
+    var on_fix_static     = 0
+    var on_fix_dyn        = 0
+}
+
+
+/**********************  STIMULUS (face / scrambled) *************/
+group Stim {
+    var diam_deg        = 6.0
+    var ecc_deg         = 8.0               // a.k.a. target_radius
+    var target_radius   = ecc_deg           // exact name used in sampler
+    var targetTimeDur   = 100               // stimulus on-time (ms)
+    var maskTimeDur     = 250               // pink-noise mask (ms)
+    var contrast_levels = [0.04,0.08,0.16]
+    var overlap_alpha   = 1
+}
+
+
+/**********************  TARGET / CHOICE WINDOWS  ****************/
+group Target {
+    /* geometry & appearance */
+    var target_win          = 6          // choice window radius (deg)
+    var target_sz           = 0.00001    // invisible center dot
+    var target_red          = 1
+    var target_green        = 1
+    var target_blue         = 1
+    var target_alpha        = 0
+    var target_alpha_memory = 0.01
+
+    /* trial-specific positions (written by sampler) */
+    var stim_id   = 0
+    var targetX   = 0
+    var targetY   = 0
+    var targetSX  = 0
+    var targetSY  = 0
+
+    /* live flags set by fixation_point stimuli */
+    var on_target    = 0
+    var on_nontarget = 0
+}
+
+
+/**********************  OCCLUDER (YN blocks)  *******************/
+group Occ {
+    var width_deg   = 3.0
+    var height_deg  = 6.0
+    var color_rgba  = [0,0,0,1]
+    var side        = 0          // 0 = right, 1 = left
+}
+
+
+/**********************  TIMING CONSTANTS  ***********************/
+group Timing {
+    /* stimulus & response */
+    var targetWait        = 5000            // response timeout (ms)
+    var targetWait0       = 5000            // reset copy
+    var responseRegister  = 100
+    var ITI               = 1800
+    var NoFixWaitDur      = 2000
+    var timeout           = 2000
+
+    /* block design (scanner) – we’ll hook these up later */
+    var on_duration     = 30        // seconds
+    var off_duration    = 30
+    var n_cycle         = 6
+    var block_type      = 0         // 0 = 2AFC, 1 = YN
+    var block_start_time = 0
+}
+
+
+/**********************  REWARD  *********************************/
+group Reward {
+    var reward_line   = 0
+    var rewardDur     = 90          // ms of juice
+    var rewardDurMin  = 150
+    var rewardDurMax  = 300
+    var reward_count  = 0
+}
+
+
+/**********************  LABJACK & PHOTODIODE  *******************/
+group Labjack {
+    var labjack_target_on   = 0
+    var labjack_cue_on      = 0
+    var labjack_fix_off     = 0
+    var labjack_fixation_on = 0
+    var t_labjack_cue_on    = 0
+}
+group Photodiode {
+    var photodiode_red   = 1
+    var photodiode_green = 1
+    var photodiode_blue  = 1
+    var photodiode_size  = 2.5
+    var photodiodeX      = -20
+    var photodiodeY      = 11.7
+    var photodiode_input = 0
+}
+
+
+/**********************  COUNTERS / FLAGS  ***********************/
+group Count {
+    var trial            = 0
+    var correct          = 0
+    var incorrect        = 0
+    var consecutive_bad  = 0
+    var pstop            = 0          // stop flag used in End Trial
+    var id_bad           = 0
+    var startTrial       = 0
+    var endTrial         = 0
+    var trialNum         = 1000000    // session limit
+}
+
+
+/**********************  TIMESTAMPS  *****************************/
+group TimeStamp {
+    var tStart        = 0
+    var tFix          = 0
+    var tStimOn       = 0
+    var tStimOff      = 0
+    var tFixOff       = 0
+    var tResponse     = 0
+    var tRew          = 0
+    var tEnd          = 0
+    var flag_response = 0
+}
+
+
+/**********************  VISUAL RESET (end-trial)  ***************/
+group VisualReset {
+    var object_red       = 1
+    var object_green     = 0.5
+    var object_blue      = 0
+    var object_alpha     = 1
+    var elapsed_time     = 0
+    var elapsed_time2    = 0
+    var error_line_green = 1
+    var error_line_blue  = 1
+}

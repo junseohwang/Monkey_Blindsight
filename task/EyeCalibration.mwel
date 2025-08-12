@@ -1,0 +1,352 @@
+
+/* 1) eyelink-driven (e.g. HV13)
+   2) Manual eye calibration (adjustments in eyelink)
+     ask subjects to pursue moving ball on the screen
+      1) horizon left/right for vertical center
+      2) horizon left/right for vertical upper
+      3) vertical up/down for horizontal center
+      4) vertical up/down for horizontal right
+     (optional) 5) horizon left/right for vertical lower
+     (optional) 6) vertical up/down for horizontal left
+     (optional) 7) diagonal upRight / downLeft
+     (optional) 8) diagonal upLeft / downRight
+   3) use "Eye Calibrator"
+   */
+
+
+////////////////
+// I/O Devices
+////////////////
+
+var subject = 'monkey' // 'monkey' // 'human'
+%define monkey
+// %define monkey
+
+// %define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+// var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+
+/////////////////
+// Variables
+/////////////////
+
+    // var space_pressed = 0 (groups = I/O)
+
+group Reward {
+    var reward_line = 0 (groups = Reward)
+    var rewardDur = 1000 (groups = Reward)
+    var bonusRewDur = 0  (groups = Reward)
+}
+group Fixation {
+    var fixY = 0 (groups = Fixation)
+    var fixX = 0 (groups = Fixation)
+    var fix_win = 25 (
+        groups = Fixation
+        persistant = 1
+        )
+    var fix_sz = 4 (groups = Fixation)
+    var NoFixWaitDur = 500 (groups = Fixation)
+    var fixWaitDur = 10000 (groups = Fixation)
+    var fixOn = 0 (groups = Fixation)
+    var fix_red = 1 (groups = Fixation)
+    var fix_green = 1 (groups = Fixation)
+    var fix_blue = 1 (groups = Fixation)
+}
+
+
+group Global {
+    var pstop = 0 (groups = Trial)
+    var startTrial = 0 (groups = Trial)
+    var endTrial = 0 (groups = Trial)
+    var localTrials = 0 (groups = Trial)
+    var CorrectTrials = 0 (groups = Trial)
+}
+group 'Fixation+Pursuit' {
+    var pursuitTheta = 0 (groups = Fixation)
+    var nRep = 1 (groups = Fixation) // 3
+    var trialNum = 1e6  (groups = Fixation)
+    var on_fix_dyn = 0 (groups = Fixation)
+    var fixHz = 0.25 (groups = Fixation)
+    var fixDynMag = 8 (groups = Fixation)
+    var tStart = 0 (groups = Fixation)
+    var fix_pur_HoldDur = 300    (groups = Fixation)
+    var fix_pur_ITI_Dur = 2000 (groups = Fixation)
+    var fix_pur_timeoutDur = 500 (groups = Fixation)
+}
+
+group Matlab {
+    var sync = 0 (groups = Matlab)
+    var Nback = 100 (
+        groups = Matlab
+        persistant = 1
+        )
+}
+
+group EyeCalibrator {
+    var cal_fixation_duration = 800ms
+    var cal_fix_pos_x = 0 (scope = local)
+    var cal_fix_pos_y = 0 (scope = local)
+    var num_stims_shown = 0
+    var miss_count = 0
+    var success = 0
+    var failure = 0
+    var ignore = 0
+
+    var fixation_width = 10                      //Y: was 1
+    var fixation_point_size = 0.65               //Y: was 0.4
+    var fixation_pos_x = 0
+    var fixation_pos_y = 0
+
+    var fixation_point_r = 0                 //Y: was var
+    var fixation_point_g = 0                 //Y: was var
+    var fixation_point_b = 0                 //Y: was var
+    var eye_on_fixation_point = false
+}
+
+group labjack{
+    var labjack_target_on = 0
+    var labjack_cue_on = 0
+    var t_labjack_cue_on=0
+}
+
+///////////
+// Sounds
+///////////
+
+
+////////////
+// Stimuli
+////////////
+
+group 'Global' {
+    white_noise_background 'White Noise Background' ()
+    blank_screen 'New Blank Screen' (color = 0,0,0)
+}
+group 'Fixation+Pursuit 2' {
+    frame_list dynamicFix (
+        stimulus_group = dynamicFixFrames
+        loop = YES
+        autoplay = YES
+        )
+    stimulus_group dynamicFixFrames {
+        circular_fixation_point fixCircleDyn (
+            color = fix_red,fix_green,fix_blue
+            trigger_width = fix_win
+            trigger_watch_x = eye_x
+            trigger_watch_y = eye_y
+            trigger_flag = on_fix_dyn
+            x_size = fix_sz
+            y_size = fix_sz
+            x_position = fixX+cos(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
+            y_position = fixY+sin(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
+            rotation = 0
+            alpha_multiplier = 1
+            )
+    }
+}
+
+circular_fixation_point fixation_point (
+    trigger_width = fixation_width
+    trigger_watch_x = eye_x
+    trigger_watch_y = eye_y
+    trigger_flag = eye_on_fixation_point
+    //color = 0,0,0                                               //Y: was 1,0,0
+    color = fixation_point_r, fixation_point_g, fixation_point_b  //Y: added this so we can send to blackrock
+    x_size =1// fixation_point_size
+    x_position = fixation_pos_x
+    y_position = fixation_pos_y
+    )
+
+
+///////////////
+// Protocols
+///////////////
+
+
+protocol 'Manual+Pursuit' {
+    start_device_io (eye_tracker)
+    queue_stimulus ('New Blank Screen')
+    update_stimulus_display ()
+    task Trials {
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            // start_io_device (labjack)
+            start_io_device (firmata)
+            goto ('Fix On')
+        }
+        state 'Fix On' {
+            fix_red = 1
+            fix_blue = 1
+            fix_green = 1
+            tStart = nextFrameTime()
+            live_queue_stimulus (dynamicFix)
+            update_stimulus_display ()
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur // 10000
+                duration_units = ms
+                )
+            goto (
+                target = 'Trial Start'
+                when = on_fix_dyn
+                )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+                )
+        }
+        state 'Trial Start' {
+            report ('Fixation acquired.')
+            startTrial = 1
+            start_timer (
+                timer = HoldFix
+                duration = fix_pur_HoldDur // 2500
+                duration_units = ms
+                )
+            goto (
+                target = Bad
+                when = !on_fix_dyn
+                )
+            timer_expired (
+                target = Reward
+                timer = HoldFix
+                )
+        }
+        state Reward {
+            report ('Success!')
+            CorrectTrials = CorrectTrials+1
+
+action/play_sound(success_sound)
+            fix_red = 0
+            fix_blue = 0
+
+            reward_line = true
+
+            start_timer (
+                timer = GreenTime
+                duration = rewardDur+bonusRewDur
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
+                )
+        }
+        state 'End Trial' {
+            report ('Ending Trial.')
+            reward_line = false
+            dequeue_stimulus (dynamicFix)
+            update_stimulus_display ()
+
+            /*  1) horizon left/right for vertical center
+                2) horizon left/right for vertical upper
+                3) vertical up/down for horizontal center
+                4) vertical up/down for horizontal right
+                */
+
+            if (CorrectTrials%(2*nRep)==0){
+                pursuitTheta = 90 - pursuitTheta
+                fixX=0
+                fixY=8
+            }
+            if (CorrectTrials%(2*nRep)!=0){
+                if (CorrectTrials%nRep==0){
+                    if (pursuitTheta==0){ // horizontal -> move up
+                        fixY = fixDynMag // 8
+                        fixX = 0
+                    }
+                    if (pursuitTheta==90){ // vertical -> mve right
+                        fixX = fixDynMag
+                        fixY = 8
+                    }
+                }
+            }
+
+            localTrials = localTrials+1
+            endTrial = 1
+            goto (
+                target = 'Exit Fixation Pursuit System'
+                when = CorrectTrials >= trialNum
+                )
+            goto (
+                target = 'Exit Fixation Pursuit System'
+                when = pstop
+                )
+            goto (ITI)
+        }
+        state ITI {
+            report ('ITI.')
+            start_timer (
+                timer = fix_pur_ITI
+                duration = fix_pur_ITI_Dur // 250
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Fix On'
+                timer = fix_pur_ITI
+                )
+        }
+        state Bad {
+            report ('Trial Failed.')
+            dequeue_stimulus (dynamicFix)
+            update_stimulus_display ()
+            start_timer (
+                timer = fix_pur_timeout
+                duration = fix_pur_timeoutDur // 500
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = fix_pur_timeout
+                )
+        }
+        state 'Failure to fixate' {
+            report ('Failure to fixate.')
+            dequeue_stimulus (dynamicFix)
+            start_timer (
+                timer = NoFixWait
+                duration = NoFixWaitDur  // 500
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Fix On'
+                timer = NoFixWait
+                )
+        }
+        state 'Exit Fixation Pursuit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}
+
+protocol 'eyelink' {
+    eyelink_tracker_setup (
+        device = eye_tracker
+        calibration_type = HV13
+        )
+
+    start_io_device (eye_tracker)
+
+    wait (600s)
+}

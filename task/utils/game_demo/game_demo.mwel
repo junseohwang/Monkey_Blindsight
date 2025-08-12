@@ -1,0 +1,217 @@
+///////////////////////////////////////////////////////////////////////////////
+//
+// Resources
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+// These directories are copied to the machine running MWServer
+resource ('dummy_task')
+resource ('sounds')
+
+// This file is copied to the machine running MWServer and executed when the
+// experiment loads
+python_file ('game_demo.py')
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+var image_pixel_width = 512
+var image_pixel_height = 512
+var image_size_x = 20
+var image_size_y = 20
+var image_pos_x = 0
+var image_pos_y = 0
+
+stimulus/python_image image (
+    pixel_buffer_format = 'RGB8'
+    pixel_buffer_width = image_pixel_width
+    pixel_buffer_height = image_pixel_height
+    pixel_buffer_expr = 't.update()'
+    x_size = image_size_x
+    y_size = image_size_y
+    x_position = image_pos_x
+    y_position = image_pos_y
+    )
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Joystick (simulated via keyboard arrow keys)
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+var joystick_x = 0
+var joystick_y = 0
+
+%define update_joystick ()
+    joystick_x = key_right - key_left
+    joystick_y = key_up - key_down
+%end
+
+var key_left = 0 {
+    update_joystick ()
+}
+var key_right = 0 {
+    update_joystick ()
+}
+var key_up = 0 {
+    update_joystick ()
+}
+var key_down = 0 {
+    update_joystick ()
+}
+
+// This include provides the macros keyboard_device and keyboard_channel, which
+// simplify keyboard usage
+%include keyboard_device
+
+keyboard_device joystick {
+    keyboard_channel (
+        key = 'left_arrow'
+        value = key_left
+        )
+    keyboard_channel (
+        key = 'right_arrow'
+        value = key_right
+        )
+    keyboard_channel (
+        key = 'up_arrow'
+        value = key_up
+        )
+    keyboard_channel (
+        key = 'down_arrow'
+        value = key_down
+        )
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Eye tracker (simulated via mouse pointer on stimulus display window)
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+var eye_x = 0
+var eye_y = 0
+
+mouse_input eye_tracker (
+    mouse_position_x = eye_x
+    mouse_position_y = eye_y
+    )
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+wav_file success_sound ('sounds/success.wav')
+wav_file failure_sound ('sounds/failure.wav')
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocol
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+var reward_duration = 0
+var reward_line = false
+var timeout_duration = 60s
+var inter_trial_interval_duration = 1s
+
+
+protocol 'Game Demo' {
+    run_python_string ('t = TaskManager()')
+
+    trial {
+        task {
+            state 'Begin trial' {
+                run_python_string ('t.reset()')
+
+                reward_duration = 0
+
+                // It's not strictly necessary to start and stop the I/O devices
+                // every trial (i.e. you could just start them once at the
+                // beginning of the protocol), but doing so ensures that the
+                // Python code receives joystick and eye tracking events only
+                // while a trial is active
+                start_io_device (joystick)
+                start_io_device (eye_tracker)
+
+                queue_stimulus (image)
+                update_display ()
+
+                goto ('Wait for completion')
+            }
+
+            state 'Wait for completion' {
+                start_timer (
+                    timer = timer
+                    duration = timeout_duration
+                    )
+
+                goto (
+                    target = 'Success'
+                    when = reward_duration > 0
+                    )
+                goto (
+                    target = 'Failure'
+                    when = timer_expired(timer)
+                    )
+            }
+
+            state 'Success' {
+                clear_display ()
+                play_sound (success_sound)
+
+                goto ('Reward')
+            }
+
+            state 'Reward' (interruptible = false) {
+                report ('Dispensing reward for $(reward_duration / 1000) ms')
+
+                // In a real experiment, reward_line could control a digital
+                // output on a NIDAQ or other device
+                reward_line = true
+                wait (reward_duration)
+                reward_line = false
+
+                goto ('End trial')
+            }
+
+            state 'Failure' {
+                clear_display ()
+                play_sound (failure_sound)
+
+                goto ('End trial')
+            }
+
+            state 'End trial' {
+                stop_io_device (joystick)
+                stop_io_device (eye_tracker)
+
+                start_timer (
+                    timer = timer
+                    duration = inter_trial_interval_duration
+                    )
+
+                goto (
+                    target = 'Begin trial'
+                    when = timer_expired(timer)
+                    )
+            }
+        }
+    }
+}

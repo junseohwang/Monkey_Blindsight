@@ -1,0 +1,112 @@
+/*
+ - test for range_replicator + render_actions
+ - it did not work; indexing is an issue
+ - but render_actions + while works!
+ - but stimulus_group + range_replicator + render_actions does not work; stimulus_group is for indexing action but not working
+ - for stimulus itself, stimulus_group + range_replicator works
+ - if "number" is in range_replicator, error; why?
+
+*/
+
+var position = [0,0]
+var size = [0,0]
+
+var y_position =[-5, 5]
+
+var elapsed_time = 0
+var duration = 10000
+
+var local_index = 0 (scope = local)
+stimulus_group balls {
+    range_replicator (
+        variable = local_index
+        from = 0
+        to = 1 // (number[0]-1)
+        step = 1
+        ) {
+        circle ball${local_index} (
+            color = 1,1,1
+            x_position = position[${local_index}]
+            y_position = y_position[${local_index}]
+            x_size = size[${local_index}]
+        )
+    }
+}
+
+/*
+stimulus_group actions {
+    range_replicator (
+        variable = local_index
+        from = 0
+        to = 1 // (number[0]-1)
+        step = 1
+        ) {
+
+        render_actions update_position_and_size${local_index} (
+            elapsed_time = elapsed_time
+            ) {
+            // Vary position and size sinusoidally with a period of
+            // three seconds
+            position[${local_index}] = -15 * cos(2*pi() * elapsed_time / 3s)
+            size[${local_index}] = 3 * (sin(2*pi() * elapsed_time / 3s) + 1) + 2
+        }
+
+    }
+}
+*/
+
+var index = 0
+var number = 2
+render_actions actions (
+    elapsed_time = elapsed_time
+    ) {
+
+    index=0
+    while (index<number){
+        // Vary position and size sinusoidally with a period of
+        // three seconds
+        position[${index}] = -15 * cos(2*pi() * elapsed_time / 3s)
+        size[${index}] = 3 * (sin(2*pi() * elapsed_time / 3s) + 1) + 2
+        index=index+1
+    }
+}
+
+
+protocol 'test' {
+    task Trials {
+        state 'test'{
+            // queue_stimulus(action0)
+            // queue_stimulus(action1)
+            queue_stimulus(actions)
+
+            index=0
+            while (index<number){
+                report($index)
+                // queue_stimulus(action${index})
+                live_queue_stimulus (balls[index])
+                index=index+1
+            }
+
+            // queue_stimulus(action${index})
+            // live_queue_stimulus (balls[index])
+
+            update_display ()
+
+            start_timer (
+                timer = timer
+                duration = duration // 10000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Exit System'
+                timer = timer
+                )
+
+        }
+        state 'Exit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}
+

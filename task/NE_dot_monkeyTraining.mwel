@@ -1,0 +1,789 @@
+
+/*  Number Estimation (NE) task with dot stimuli
+
+    - 1) total area/individual area, 2) density/convex hull controlled as in Park, Cognition (2022)
+    - use only fixed sets [2 6] for training (ultimately [1 2 3 4 6 8 12]
+    - implement movie that brings dots to targets for supervised learning
+    - based on MemorySaccadeNumber.mwel
+    - MODIFY "platform" according to your system
+    - DOUBLE CHECK if number_list sampled are what you intended (Mworks server console; set_stimuli.py)
+
+TBD: debug occasional error
+
+1) green dot at center?
+    02:40:50:  WARNING: Subscript evaluation failed.  Returning 0 instead.
+    02:40:50:  ERROR: Requested list index (5) is out of bounds
+2) dot overlapped?
+
+   */
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'human' // 'monkey' // 'human'
+// %define human
+%define monkey
+
+%define laptop
+// %define psychophysics
+// %define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+// var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file('set_stimuli.py')
+
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define compute_distance (x1,x2,y1,y2)  sqrt(pow(x1-x2,2)+pow(y1-y2,2))
+%define sample_position ()
+    sample_radius=rand(fix_sz,object_convexhull_radius) // given object_overlap_threshold=0.5, fix_sz=1
+    sample_theta=rand(0,2*pi())
+
+    sampleX = sample_radius*cos(sample_theta)
+    sampleY = sample_radius*sin(sample_theta)
+%end
+
+%define sample_trial ()
+
+    // sample number
+    number_id = disc_rand(0,n_number_set-1) // e.g., 0 1
+    number_id = (int) number_id
+    number = number_set[number_id] // e.g., 2 6
+    flagFixbreak_fix = 0
+    flagFixbreak = 0
+    dot_alpha = 1
+
+    index=0 // initialize variables
+    while (index<(number)){
+        dotX[index]=0
+        dotY[index]=0
+
+        dotX0[index]=0
+        dotY0[index]=0
+
+        dot_red[index]=1
+        dot_green[index]=1
+        dot_blue[index]=1
+
+        // bring 1-by-1 slots
+        relative_target_x = ((index+1)-number_range[0])/(number_range[1]-number_range[0]) // 0 to 1
+        dotX_final[index] = line_x+(relative_target_x-(1/2))*line_size*cos(line_theta)
+        dotY_final[index] = line_y+(relative_target_x-(1/2))*line_size*sin(line_theta)
+
+        index=index+1
+    }
+
+    // sample object locations
+    run_python_string('stim.reset()') // update dotX0, dotX dotY0, dotY, dot_sz
+
+
+    relative_target_x = (number-number_range[0])/(number_range[1]-number_range[0]) // 0 to 1
+    objectX = line_x+(relative_target_x-(1/2))*line_size*cos(line_theta)  // for correct answer
+    targetX = line_x+(relative_target_x-(1/2))*line_size*cos(line_theta) // [-16/3 0] degree // for target window
+    objectY = line_y+(relative_target_x-(1/2))*line_size*sin(line_theta)
+    targetY = line_y+(relative_target_x-(1/2))*line_size*sin(line_theta)
+
+    // sample durations
+    fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+
+    %ifdef human
+        tmp = disc_rand(0,size(numberTimeDurList)-1) // e.g., 0 1 2 3
+        numberTimeDur = numberTimeDurList[tmp]
+    %end
+
+    %ifdef monkey
+        numberTimeDur=-numberTimeDurMean*logn(rand(0,1)) + numberTimeDurMin
+    %end
+
+    memoryTimeDur=-memoryTimeDurMean*logn(rand(0,1)) + memoryTimeDurMin // for now, movie
+    targetTimeDur=-targetTimeDurMean*logn(rand(0,1)) + targetTimeDurMin
+
+%end
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocols
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'NumberEstimation_dot' {
+    start_device_io (eye_tracker)
+    start_device_io (hand)
+    current_key_input = -1
+
+    run_python_string('stim = SetStimuli()')
+
+    report('designed # set: $number_set')
+    report('sampled # set: $number_set_sampled')
+
+    %ifdef monkey_ephys
+        start_io_device (labjack)
+    %end
+
+    update_stimulus_display ()
+    task Trials {
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+            tmp=0
+            while (tmp<(n_number_set)){ // count # correct trials for each number
+                CorrectTrialsTarget[tmp]=0
+                IncorrectTrialsTarget[tmp]=0
+                tmp=tmp+1
+            }
+
+            sample_trial () // durations & target location
+
+            goto ('Fix On')
+        }
+
+        state 'Fix On' {
+            //MATLAB
+            //sync=0
+            //sync=1
+
+            live_queue_stimulus(fixCircleStatic)
+
+            report ('localTrials = $localTrials')
+            localTrials = localTrials+1
+
+            update_stimulus_display ()
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur // 10000
+                duration_units = ms
+                )
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static
+                )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+                )
+        }
+
+        state 'Static Fix' {
+
+
+            tFix = now()
+            id_bad = 1
+
+            if(flagFixbreak_fix == 1){
+                report ('original time = $fixTimeDur')
+                fixTimeDur=fixTimeDur+(now()-tFixbreak)/1000
+                extraDur = (now()-tFixbreak)/1000
+                report('extra time = $extraDur')
+            }
+
+            report('fix time = $fixTimeDur')
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur // fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+                duration_units = ms
+                )
+            goto (
+                target = 'No fix'
+                when = !on_fix_static
+                )
+            timer_expired (
+                target = 'Number On'
+                timer = StaticFixWait
+                )
+        }
+
+        state 'Number On' {
+            tNumberOn = next_frame_time()
+
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+            %end
+
+            index=0
+            while (index<number){
+                queue_stimulus(dots[index])
+                index=index+1
+            }
+
+            update_stimulus_display () // 25ms from labjack
+            id_bad = 2
+
+            labjack_cue_on = 1
+
+            if(flagFixbreak == 1){
+                report ('original time = $numberTimeDur')
+                numberTimeDur=numberTimeDur+(now()-tFixbreak)/1000
+                extraDur = (now()-tFixbreak)/1000
+                report('extra time = $extraDur')
+            }
+            report ('numberTimeDur = $numberTimeDur')
+
+            start_timer (
+                timer = timer_number_on
+                duration = numberTimeDur
+                duration_units = ms
+                )
+            goto (
+                target = 'No fix'
+                when = !on_fix_static  
+                )
+            timer_expired (
+                target = 'Memory'
+                timer = timer_number_on
+                )
+        }
+
+        state 'Memory' { // mask for human
+            tNumberOff = next_frame_time()
+            id_bad = 3
+
+    
+
+            // dot animation
+            %ifdef monkey
+                queue_stimulus(number_line) // originally presented in 'target on'
+                queue_stimulus(bring_dots_to_target)
+                index=0
+                while (index<number){
+                    live_queue_stimulus(dots[index])
+                    index=index+1
+                }
+            %end
+
+
+            %ifdef monkey_ephys
+                dequeue_stimulus(photodiode)
+            %end
+
+            update_stimulus_display () // 40ms from labjack
+
+            labjack_cue_on = 0
+
+            start_timer (
+                timer = timer_memory
+                duration = memoryTimeDur
+                duration_units = ms
+                )
+            goto (
+                target = 'No fix_memory'
+                when = !on_fix_static  
+                )
+            timer_expired (
+                target = 'Target On'
+                timer = timer_memory
+                )
+        }
+        
+        state 'No fix_memory'{
+
+            start_timer (
+                timer = timer_no_fix
+                duration = 500
+                duration_units = ms
+                )
+            goto (
+                target = 'Memory'
+                when = on_fix_static 
+                )
+            timer_expired (
+                target = 'Bad'
+                timer = timer_no_fix
+                )
+        }
+
+        state 'No fix' {
+
+            tFixbreak = now()
+            if (id_bad == 1){
+                flagFixbreak_fix = 1
+            }
+            if (id_bad == 2){
+                flagFixbreak = 1
+            }         
+
+            start_timer (
+                timer = timer_no_fix
+                duration = 300
+                duration_units = ms
+                )
+            goto (
+                target = 'Number On'
+                when = on_fix_static && id_bad == 2
+                )
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static && id_bad == 1
+                )
+            timer_expired (
+                target = 'Bad'
+                timer = timer_no_fix
+                )
+        }
+
+        state 'Target On' {
+            tTargetOn = next_frame_time()
+
+            %ifdef monkey
+                queue_stimulus(number_line)
+                index=0
+                while (index<(number-1)){ // leave the last one
+                    dequeue_stimulus(dots[index])
+                    index=index+1
+                }
+                // training: make the target green
+                //dot_red[number-1]=0
+                //dot_blue[number-1]=0
+                //dot_sz = 1
+                dot_alpha = dot_alpha0
+                live_queue_stimulus(dots[number-1])
+                update_stimulus_display ()
+            %end
+
+            id_bad = 4
+
+            labjack_target_on = 1
+
+            start_timer (
+                timer = timer_target_on
+                duration = targetTimeDur
+                duration_units = ms
+                )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static || current_key_input != -1
+                )
+            timer_expired (
+                target = 'FixOff' // 'Occluder On'
+                timer = timer_target_on
+                )
+        }
+
+        state 'FixOff' {
+            id_bad = 5
+
+        
+            live_queue_stimulus(target_window)
+            dequeue_stimulus(fixCircleStatic)
+            //dot_red[number-1]=0
+            //dot_blue[number-1]=0
+            //dot_sz = 1
+            dotX[number-1] = dotX_final[number-1]
+            dotY[number-1] = dotY_final[number-1]
+            live_queue_stimulus(dots[number-1])
+            update_stimulus_display ()
+      
+            tFixOff= now() // next_frame_time()
+            labjack_fix_off=1
+
+            goto (
+                target = 'Response'
+                )
+        }
+
+        state 'Response' {
+            id_bad = 6
+
+            // reduce targetWait after failed responseRegister
+            if (flag_response==0){
+                tResponse0=now()
+                flag_response=1
+            }
+            if (flag_response==1){
+                targetWait=targetWait-(now()-tResponse0)/1000
+            }
+
+            start_timer (
+                timer = timer_response
+                duration = targetWait // 5000
+                duration_units = ms
+                )
+            goto (
+                target = 'post_response'
+                when = on_target
+                )
+            timer_expired (
+                target = 'Bad'
+                timer = timer_response
+                )
+        }
+
+        state 'post_response' {
+            id_bad = 7
+            tResponse= now()
+            
+            start_timer (
+                timer = timer_post_response
+                duration = responseRegister // 100
+                duration_units = ms
+                )
+            goto (
+                target = 'Response' // 'Failure to fixate'
+                when = !on_target
+                )
+            timer_expired (
+                target = 'feedback_line'
+                timer = timer_post_response
+                )
+
+        }
+
+        state 'feedback_line' {
+
+            %ifdef monkey
+                responseX = eye_x
+                responseY = eye_y
+
+                // for feedback (error line)
+                error_lineX = (responseX+objectX)/2
+                error_lineY = (responseY+objectY)/2
+                error_line_szX = compute_distance(responseX,objectX,responseY,objectY)
+
+                // get chosen number
+                tmp = compute_distance(responseX,line_x-line_size/2*cos(line_theta),responseY,line_y-line_size/2*sin(line_theta)) // distance from leftmost point
+                chosen_number = round(tmp/unit_size)+number_range[0]
+
+                // if perfect, rewardDurMax; if | chosen_number - number | < reward_threshold_error, 0
+                rewardDur = max(0,rewardDurMax*(1-pow(chosen_number-number,2)/pow(reward_threshold_error,2)))
+            %end
+
+            labjack_fix_off=0
+
+
+            goto (
+                target = 'Reward'
+                when = rewardDur > 0
+                )
+            goto (
+                target = 'Bad'
+                when = rewardDur == 0
+                )
+
+        }
+
+
+
+        state 'Reward' {
+
+            labjack_target_on = 0
+
+            %ifdef monkey
+                dequeue_stimulus(number_line)
+                queue_stimulus(error_line)
+
+                // reward animation
+                dot_sz0 = dot_sz
+                queue_stimulus(green_disappear)
+                live_queue_stimulus(dots[number-1])
+
+                update_stimulus_display ()
+            %end
+
+    
+
+            action/play_sound(success_sound)
+
+            report ('Success!: CorrectTrials = $CorrectTrials')
+            tRew = now()
+
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+            %end
+
+            CorrectTrialsTarget[number_id] = CorrectTrialsTarget[number_id]+1
+            CorrectTrials = CorrectTrials+1
+
+            pulse ( // micro seconds
+                variable = reward_line
+                duration = rewardDur*1000
+                )
+
+            start_timer (
+                timer = GreenTime
+                duration = rewardDur // 200
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
+                )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+
+            endTrial = endTrial+1
+
+            // reset stimulus
+            object_red=1 // target_red=1
+            object_green=0.5
+            object_blue=0 // target_blue=1
+            object_alpha = 1 // target_alpha = 1
+
+            elapsed_time = 0
+            elapsed_time2 = 0 // for reducing contrast
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            error_line_green = 1
+            error_line_blue = 1
+
+            reward_count=0
+            rewardDur = -1
+
+            dequeue_stimulus (target_window)
+            dequeue_stimulus(number_line)
+            // dequeue_stimulus (dots)
+            dequeue_stimulus (fixCircleStatic)
+            dequeue_stimulus (bring_dots_to_target)
+            dequeue_stimulus(error_line)
+            dequeue_stimulus(photodiode)
+            dequeue_stimulus(green_disappear)
+            dequeue_stimulus(dynamic_noise) // (white_noise)
+
+            index=0
+            while (index<number){
+                dequeue_stimulus(dots[index])
+                dot_red[index] = 1
+                dot_green[index] = 1
+                dot_blue[index] = 1
+                index=index+1
+            }
+
+            id_bad = 0
+
+            flag_response=0
+            targetWait=targetWait0
+
+            id_digit=1
+            current_key_input=-1
+            number_key_input = [-1,-1]
+
+            keypad_red = 1
+            keypad_green = 1
+            keypad_blue = 1
+
+
+            update_stimulus_display ()
+            labjack_target_on = 0
+            labjack_fix_off = 0
+            labjack_cue_on = 0
+
+            goto (
+                target = 'Exit System'
+                when = CorrectTrials >= trialNum
+                )
+            goto (
+                target = 'Exit System'
+                when = pstop
+                )
+            goto (ITI)
+        }
+        state ITI {
+
+            sample_trial () // duration and target locations
+
+            // override eye_x eye_y to reset trigger_flag
+            // eye_x=100
+
+            start_timer (
+                timer = fix_pur_ITI
+                duration = ITI // 500
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Fix On'
+                timer = fix_pur_ITI
+                )
+        }
+
+        state 'Failure to fixate' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            start_timer (
+                timer = NoFixWait
+                duration = NoFixWaitDur  // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+                )
+        }
+
+        state 'Bad' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+            flagFixbreak = 0
+            flagFixbreak_fix = 0
+
+            if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
+
+                // red fixation
+                fix_green_static = 0
+                fix_blue_static = 0
+
+                index=0
+                while (index<number){
+                    dequeue_stimulus(dots[index])
+                    index=index+1
+                }
+
+                dequeue_stimulus (target_window)
+                // dequeue_stimulus (dots)
+                // dequeue_stimulus (object_disappear)
+                dequeue_stimulus(dynamic_noise) // (white_noise)
+                dequeue_stimulus(photodiode)
+                update_stimulus_display ()
+                labjack_target_on = 0
+                labjack_cue_on = 0
+
+            }
+
+            if (id_bad==5 || id_bad==6){ // fixoff response
+
+                dequeue_stimulus(number_line)
+                dequeue_stimulus (target_window)
+                update_stimulus_display ()
+
+                labjack_cue_on = 1
+
+                action/play_sound(failure_sound)
+
+            }
+
+            if (id_bad == 7){ // error is too big
+
+                %ifdef monkey
+                    dequeue_stimulus(number_line)
+                    error_line_green = 0
+                    error_line_blue = 0
+
+                    queue_stimulus(error_line)
+
+                    //dot_red[number-1]=1
+                    //dot_blue[number-1]=0
+                    //dot_green[number-1]=0
+
+                    update_stimulus_display ()
+                %end
+                %ifdef human
+                    keypad_green = 0
+                    keypad_blue = 0
+                    update_stimulus_display ()
+                %end
+
+            }
+
+            start_timer (
+                timer = timer_timeout
+                duration = timeout // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = timer_timeout
+                )
+        }
+
+
+        state 'Exit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}

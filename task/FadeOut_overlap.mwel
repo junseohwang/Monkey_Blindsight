@@ -1,0 +1,505 @@
+
+/*  Fix Overlap Task
+
+    - fix with distractor task
+    - 24.09.02 somang
+
+   */
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'human'
+//%define human
+%define monkey
+
+%define laptop
+// %define psychophysics
+// %define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+// var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file('set_stimuli.py')
+
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+sound/wav_file start_sound ('sounds/start.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+%define sample_overlap_trial () //target object shape, target object loc, durations
+
+    //// sample durations
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    overlapTimeDur = -overlapDurMean * logn(rand(0,1)) + overlapDurMin  
+    targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin  
+
+
+    //sample target
+    target_id = disc_rand(0,nTarget-1)
+    target_theta = target_id * (360/nTarget)
+
+    targetX_final = cos(target_theta*pi()/180)*target_radius
+    targetY_final = sin(target_theta*pi()/180)*target_radius
+
+    targetX = targetX_final
+    targetY = targetY_final
+
+    overlapX_final = targetX_final
+    overlapY_final = targetY_final
+
+    overlapX = targetX
+    overlapY = targetY
+
+ 
+%end
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocols
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'FadeOut_Overlap' {
+    start_device_io (eye_tracker)
+
+    %ifdef monkey_ephys
+        start_io_device (labjack)
+    %end
+
+    update_stimulus_display ()
+    task Trials {
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+
+            sample_overlap_trial () // durations & target location
+
+            goto ('Fix On')
+        }
+
+        state 'Fix On' {
+
+            live_queue_stimulus(fixCircleStatic)
+
+            update_stimulus_display ()
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur // 10000
+                duration_units = ms
+                )
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static
+                )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+                )
+        }
+
+        state 'Static Fix' {
+            report ('localTrials = $localTrials')
+            localTrials = localTrials+1
+
+            tFix = now()
+            id_bad = 1
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur // fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+                duration_units = ms
+                )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+                )
+            timer_expired (
+                target = 'Target On'
+                timer = StaticFixWait
+                )
+        }
+
+        state 'Target On' {
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+            %end
+
+            index=0
+            queue_stimulus(overlap_obj)
+
+            update_stimulus_display () // 25ms from labjack
+            id_bad = 2
+
+            labjack_target_on = 1
+
+            start_timer (
+                timer = timer_target_on
+                duration = targetTimeDur
+                duration_units = ms
+                )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+                )
+            timer_expired (
+                target = 'Overlap' // 'Occluder On'
+                timer = timer_target_on
+                )
+
+        }
+
+        state 'Overlap' { // mask for human
+            tOverlap = now()
+            id_bad = 3
+            
+            dequeue_stimulus(overlap_obj)
+            
+            start_time = next_frame_time()
+            live_queue_stimulus(memory_obj_list)
+            update_stimulus_display () // 40ms from labjack
+
+            labjack_cue_on = 0
+
+
+            start_timer (
+                timer = timer_memory
+                duration = overlapTimeDur
+                duration_units = ms
+                )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+                )
+            timer_expired (
+                target = 'Fix Off'
+                timer = timer_memory
+                )
+        }
+
+        state 'Fix Off' {
+            id_bad = 5
+
+            live_queue_stimulus(target_window)
+
+            dequeue_stimulus(fixCircleStatic)
+            update_stimulus_display ()
+
+            tFixOff= now() // next_frame_time()
+
+            labjack_fix_off=1
+
+            goto (
+                target = 'Response'
+                )
+        }
+
+        state 'Response'{
+            id_bad = 6
+
+            queue_stimulus(hint_obj)
+            update_stimulus_display ()
+
+            if (flag_response==0){
+                tResponse0=now()
+                flag_response=1
+            }
+            if (flag_response==1){
+                targetWait=targetWait-(now()-tResponse0)/1000
+            }
+
+            start_timer (
+                timer = timer_response
+                duration = targetWait // 5000
+                duration_units = ms
+                )
+            goto (
+                target = 'post_response'
+                when = on_target
+                )
+            timer_expired (
+                target = 'Bad'
+                timer = timer_response
+                )
+        }
+
+        state 'post_response' {
+            id_bad = 7
+            tResponse= now()
+
+            start_timer (
+                timer = timer_post_response
+                duration = responseRegister // 100
+                duration_units = ms
+                )
+            goto (
+                target = 'Response' // 'Failure to fixate'
+                when = !on_target
+                )
+            timer_expired (
+                target = 'Reward'
+                timer = timer_post_response
+                )
+        }
+
+       
+        state 'Reward' {
+            labjack_target_on = 0
+
+            action/play_sound(success_sound)
+
+            queue_stimulus(overlap_obj)
+            update_stimulus_display ()
+
+            report ('Success!: CorrectTrials = $CorrectTrials')
+            tRew = now()
+
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+                update_stimulus_display ()
+            %end
+
+            CorrectTrials = CorrectTrials+1
+            
+
+            pulse ( // micro seconds
+                variable = reward_line
+                duration = rewardDur*1000
+                )
+
+            start_timer (
+                timer = GreenTime
+                duration = rewardDur // 200
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
+                )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+
+            endTrial = endTrial+1
+
+            // reset stimulus
+            object_red=1 // target_red=1
+            object_green=0.5
+            object_blue=0 // target_blue=1
+            object_alpha = 1 // target_alpha = 1
+
+            elapsed_time = 0
+            elapsed_time2 = 0 // for reducing contrast
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            error_line_green = 1
+            error_line_blue = 1
+
+            reward_count=0
+            //rewardDur = -1
+
+            dequeue_stimulus(hint_obj)
+            dequeue_stimulus(photodiode)
+            dequeue_stimulus(memory_obj_list)
+            dequeue_stimulus(overlap_obj)
+            dequeue_stimulus(target_window)
+            dequeue_stimulus(fixCircleStatic)
+
+            id_bad = 0
+
+            flag_response=0
+            targetWait=targetWait0
+
+            update_stimulus_display ()
+            labjack_target_on = 0
+            labjack_fix_off = 0
+            labjack_cue_on = 0
+
+            goto (
+                target = 'Exit System'
+                when = CorrectTrials >= trialNum
+                )
+            goto (
+                target = 'Exit System'
+                when = pstop
+                )
+            goto (ITI)
+        }
+        state ITI {
+
+            sample_overlap_trial () // duration and target locations
+
+            // override eye_x eye_y to reset trigger_flag
+            // eye_x=100
+
+            start_timer (
+                timer = fix_pur_ITI
+                duration = ITI // 500
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Fix On'
+                timer = fix_pur_ITI
+                )
+        }
+
+        state 'Failure to fixate' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            start_timer (
+                timer = NoFixWait
+                duration = NoFixWaitDur  // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+                )
+        }
+
+        state 'Bad' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
+
+                // red fixation
+                fix_green_static = 0
+                fix_blue_static = 0
+
+                index=0
+                while (index<number){
+                    dequeue_stimulus(dots[index])
+                    index=index+1
+                }
+
+                dequeue_stimulus(photodiode)
+                dequeue_stimulus(overlap_obj)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(fixCircleStatic)
+                update_stimulus_display ()
+                labjack_target_on = 0
+                labjack_cue_on = 0
+
+            }
+
+            if (id_bad==5 || id_bad==6){ // fixoff response
+
+                labjack_cue_on = 1
+
+                action/play_sound(failure_sound)
+
+            }
+
+            start_timer (
+                timer = timer_timeout
+                duration = timeout // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = timer_timeout
+                )
+        }
+
+
+        state 'Exit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}

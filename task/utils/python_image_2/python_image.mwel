@@ -1,0 +1,32 @@
+// This is a Python file resource.  It executes when the MWorks experiment
+// loads.  In this case, it defines the Python function render_scene.
+python_file ('render_scene.py')
+
+
+var elapsed_time = 0
+
+render_actions prepare_scene (elapsed_time = elapsed_time) {
+    // At the moment, this exists only to capture elapsed_time, but we could add
+    // variable assignments or other actions here.
+}
+
+
+var scene_width = 512
+var scene_height = 512
+
+stimulus/python_image scene (
+    pixel_buffer_format = 'RGB8'
+    pixel_buffer_width = scene_width
+    pixel_buffer_height = scene_height
+    pixel_buffer_expr = 'render_scene()'
+    x_size = 20
+    )
+
+
+protocol 'Python Image Demo' {
+    queue_stimulus (prepare_scene)
+    queue_stimulus (scene)
+    update_display ()
+
+    wait (600s)
+}

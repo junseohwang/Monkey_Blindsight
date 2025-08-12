@@ -1,0 +1,392 @@
+
+/*  
+Eye fixation task_stairver 
+    based on NE_dot task
+    24.02.01 - added sound
+    24.04.05 - add stair case by SA
+    24.08.19 - fixation with rotating checkerboard wedge
+
+    for training, set run_duration = 3600 (1hr)
+    for actual fMRI session, set as follows
+        -  run_duration = 24*6 (for training 3600s/1hr)
+        -  NoFixWaitDur=0 (so that animals can get back to task right away)
+        -  timeout=0 (so that animals can get back to task right away)
+
+   */
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'monkey' // 'human'
+// %define human
+%define monkey
+
+// % define laptop
+// % define psychophysics
+% define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+// var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+sound/wav_file start_sound ('sounds/start.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+group Fixation {
+    var fix_theta = 0 (groups = Fixation)
+}
+
+group Matlab {
+    var sync = 0 (groups = Matlab)
+    var Nback = 100 (
+        groups = Matlab
+        persistant = 1
+        )
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+% define sample_fix_trial ()
+
+    fixTimeDur=-fixTimeDurMean*logn(rand(0,1)) + fixTimeDurMin // exp_rand(fixTimeDurMean,fixTimeDurMin)
+
+%end
+
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocols
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'EyeFixation' {
+    start_device_io (eye_tracker)
+
+    start_device_io (hand)
+
+    queue_stimulus(background_screen)
+    update_stimulus_display ()
+
+    task Trials {
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+            fixTimeDur = fixTimeDur // for MATLAB
+
+            // present text
+            queue_stimulus(wait_for_TTL)
+
+            // present fixation
+            live_queue_stimulus(fixCircleStatic)
+            update_stimulus_display ()
+
+            sample_fix_trial () // durations & target location
+
+            goto (
+                target = 'Checkerboard On'
+                when = TTL
+                )
+        }
+
+        state 'Checkerboard On' {
+            dequeue_stimulus(wait_for_TTL)
+            live_queue_stimulus (checkerboards_list)
+            live_queue_stimulus (wedges_list)
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            t_checkerboard_on = now()
+
+            goto ('Fix On')
+        }
+
+/////////////////////////////////// FIX
+
+        state 'Fix On' {
+            //MATLAB
+            sync=0
+            sync=1
+
+            // red fixation as default
+            fix_green_static = 0
+            fix_blue_static = 0
+
+            live_queue_stimulus(fixCircleStatic)
+
+            update_stimulus_display ()
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur // 10000
+                duration_units = ms
+                )
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static
+                )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+                )
+
+            goto (
+                target = 'Checkerboard Off'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+        }
+
+        state 'Static Fix' {
+            report ('localTrials = $localTrials')
+            localTrials = localTrials + 1
+            fixTimeDur = fixTimeDur // for MATLAB
+            tFix = now()
+            id_bad = 1
+
+            // white fixation if fixated
+            fix_green_static = 1
+            fix_blue_static = 1
+
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur
+                duration_units = ms
+            )
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Reward' // pass
+                timer = StaticFixWait
+            )
+            goto (
+                target = 'Checkerboard Off'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+        }
+
+        state 'Reward' {
+            // green
+            fix_red_static = 0
+            fix_blue_static = 0
+
+            report ('Success!: CorrectTrials = $CorrectTrials')
+            tRew = now()
+
+            CorrectTrials = CorrectTrials+1
+            reward_line = true
+
+            consecutive_correct_trials = consecutive_correct_trials + 1
+            consecutive_bad_trials = 0
+
+            rewardDur = rewardDurMin + (bonusRewDur*consecutive_correct_trials)
+            if (rewardDurMax <= rewardDur) {
+                    rewardDur = rewardDurMax
+                }
+
+            start_timer (
+                timer = GreenTime
+                duration = rewardDur // 200
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
+                )
+            goto (
+                target = 'Checkerboard Off'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+            reward_line = false
+            endTrial = endTrial+1
+            fixTimeDur = fixTimeDur // for MATLAB
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            fix_alpha = 1
+
+            reward_count=0
+
+            id_bad = 0
+
+            update_stimulus_display ()
+
+            goto (
+                target = 'Checkerboard Off'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+            goto (
+                target = 'Exit System'
+                when = CorrectTrials >= trialNum
+                )
+            goto (
+                target = 'Exit System'
+                when = pstop
+                )
+            goto ('Fix On')
+        }
+
+/////////////////////////////////// FIX
+
+        state 'Checkerboard Off' {
+            dequeue_stimulus (checkerboards_list)
+            dequeue_stimulus (wedges_list)
+            dequeue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto ('Exit System')
+        }
+
+
+        state 'Failure to fixate' {
+            report ('Trial Failed: id_bad = $id_bad')
+
+            fix_alpha = 0 // for training
+            /*
+            // red fixation
+            fix_green_static = 0
+            fix_blue_static = 0
+            */
+            update_stimulus_display ()
+
+            consecutive_correct_trials = 0
+            tResponse= now()
+            fixTimeDur = fixTimeDur // for MATLAB
+            start_timer (
+                timer = NoFixWait
+                duration = NoFixWaitDur  // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+                )
+        }
+
+        state 'Bad' {
+            report ('Trial Failed: id_bad = $id_bad')
+            tResponse= now()
+
+            consecutive_bad_trials = consecutive_bad_trials + 1
+            consecutive_correct_trials = 0
+
+            if (consecutive_bad_trials == 1) {
+                consecutive_bad_trials = 0
+            }
+
+            if (id_bad==1){ // fixation break
+
+                fix_alpha = 0 // for training
+                /*
+                // red fixation
+                fix_green_static = 0
+                fix_blue_static = 0
+                */
+                update_stimulus_display ()
+
+            }
+
+            start_timer (
+                timer = timer_timeout
+                duration = timeout // 2000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = timer_timeout
+                )
+        }
+
+        state 'Exit System' {
+            report ('Leaving state system')
+            yield ()
+        }
+    }
+}
