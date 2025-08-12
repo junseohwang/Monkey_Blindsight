@@ -1,0 +1,39 @@
+var W = display_bounds("right")
+var H = display_bounds("top")
+
+image_file noise_full (
+    path = 'image/noise_mask.png'
+    fullscreen = YES
+    alpha_multiplier = 1
+)
+
+rectangle cover_left  (
+    x_size = W
+    y_size = 2*H 
+    x_position = -W/2 
+    y_position = 0 
+    color = 0, 0, 0 
+    alpha_multiplier = 1
+    )
+rectangle cover_right (
+    x_size = W   
+    y_size = 2*H 
+    x_position =  W/2 
+    y_position = 0 
+    color = 0, 0, 0 
+    alpha_multiplier = 1
+    )
+
+protocol noise_left_half {
+    queue_stimulus(noise_full)
+    queue_stimulus(cover_right)     
+    update_stimulus_display()
+    wait(5s)
+}
+
+protocol noise_right_half {
+    queue_stimulus(noise_full)
+    queue_stimulus(cover_left)
+    update_stimulus_display()
+    wait(5s)
+}

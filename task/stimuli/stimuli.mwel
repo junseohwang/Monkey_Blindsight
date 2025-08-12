@@ -38,22 +38,19 @@ image_file monkey_scrambled (
 // Masks & Occluders
 //================================================================
 
+var W = display_bounds("right")   // 24.6984 in your log
+var H = display_bounds("top")     // 13.8927 in your log
+
 image_file noise_mask_fullscreen (
     path = 'image/noise_mask.png'
-    // x_size = display_bounds("right")*2  // set to cover monitor width
-    // y_size = display_bounds("top")*2 // set to cover monitor height
-    // x_position = 0  // center of screen (depending on coordinate system)
-    // y_position = 0  // center
-    // alpha_multiplier = 1
-    // deferred = NO
-    fullscreen = YES
+    fullscreen = YES            // Completely covers the display, ignores x/y size
 )
 
 image_file occluder_left (
     path = 'image/noise_mask_left.png'
-    x_size = display_bounds("right")*2
-    y_size = display_bounds("top")*2
-    x_position = -display_bounds("right")/2
+    x_size = W                  // half width
+    y_size = 2 * H              // full height
+    x_position = -W / 2         // center of left half
     y_position = 0
     alpha_multiplier = 1
     deferred = NO
@@ -61,9 +58,9 @@ image_file occluder_left (
 
 image_file occluder_right (
     path = 'image/noise_mask_right.png'
-    x_size = display_bounds("right")*2
-    y_size = display_bounds("top")*2
-    x_position = display_bounds("right")/2
+    x_size = W                  // half width
+    y_size = 2 * H              // full height
+    x_position =  W / 2         // center of right half
     y_position = 0
     alpha_multiplier = 0.5
     deferred = NO

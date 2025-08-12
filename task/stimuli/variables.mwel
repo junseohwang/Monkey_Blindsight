@@ -473,7 +473,7 @@ group Global {
     // --- Task Mode Control ---
     var task_mode = 1 (groups = Trial)  // The master switch for the experiment. Can be '2AFC' or 'YN'.
     var stim_id = 0 (groups = Trial)         // Used in 2AFC for correct target side AND in YN for face/scrambled trial type.
-    var training_stage = 3               // 0=touch-only, 1=hold-only, 2=hold fixation even when the face appear, 4=full task
+    var training_stage = 4               // 0=touch-only, 1=hold-only, 2=hold fixation even when the face appear, 4=full task
 
     // --- Session Control & Counters ---
     var pstop = 0 (groups = Trial)           // A flag you can manually set to 1 to gracefully stop the experiment.

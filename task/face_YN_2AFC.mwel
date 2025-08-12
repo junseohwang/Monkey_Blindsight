@@ -16,14 +16,14 @@ var subject = 'monkey' // 'human'
 //%define human
 %define monkey
 
-// %define laptop
+%define laptop
 // %define psychophysics
-%define monkey_train
+// %define monkey_train
 // %define monkey_ephys // labjack photodiode
 
-// var platform = 'laptop' // mouse keyboard
+var platform = 'laptop' // mouse keyboard
 // var platform = 'psychophysics' // human
-var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_train' // eyelink keyboard
 // var platform = 'monkey_ephys'
 
 ///////////////////////////////////////////////////////////////////////////////
