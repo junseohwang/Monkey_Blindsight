@@ -3,30 +3,30 @@
 import os
 
 if getvar('platform') == 'laptop':
-    _PWD = '/Volumes/T9/IBS/SIN/Research/Monkey/Monkey_Blindsight/task'
+    _PWD = '/Users/training1/Documents/Monkey/task'
     _PYTHON_SITE_PACKAGES = (
         '/opt/anaconda3/envs/mworks/lib/python3.8/site-packages'
     )
 elif getvar('platform') == 'desktop':
-    _PWD = '/Volumes/T9/IBS/SIN/Research/Monkey/Monkey_Blindsight/task'
+    _PWD = '/Users/training1/Documents/Monkey/task'
     _PYTHON_SITE_PACKAGES = (
         '/Users/hansem/miniconda3/envs/mworks/lib/python3.8/site-packages'
     )
 elif getvar('platform') == 'psychophysics':
     # laptop hansem
-    _PWD = '/Volumes/T9/IBS/SIN/Research/Monkey/Monkey_Blindsight/task'
+    _PWD = '/Users/training1/Documents/Monkey/task'
     _PYTHON_SITE_PACKAGES = (
         '/opt/anaconda3/envs/mworks/lib/python3.8/site-packages'
     )
 elif getvar('platform') == 'monkey_ephys':
     # H
-    _PWD = '/Volumes/T9/IBS/SIN/Research/Monkey/Monkey_Blindsight/task'
+    _PWD = '/Users/training1/Documents/Monkey/task'
     _PYTHON_SITE_PACKAGES = (
         '/opt/miniconda3/envs/mworks/lib/python3.9/site-packages'
     )
 elif getvar('platform') == 'monkey_train':
     # G
-    _PWD = '/Volumes/T9/IBS/SIN/Research/Monkey/Monkey_Blindsight/task'
+    _PWD = '/Users/training1/Documents/Monkey/task'
     _PYTHON_SITE_PACKAGES = (
         '/opt/anaconda3/envs/mworks/lib/python3.9/site-packages'
     )

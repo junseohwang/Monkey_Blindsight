@@ -16,14 +16,14 @@ var subject = 'monkey' // 'human'
 //%define human
 %define monkey
 
-%define laptop
+// %define laptop
 // %define psychophysics
-// %define monkey_train
+%define monkey_train
 // %define monkey_ephys // labjack photodiode
 
-var platform = 'laptop' // mouse keyboard
+// var platform = 'laptop' // mouse keyboard
 // var platform = 'psychophysics' // human
-// var platform = 'monkey_train' // eyelink keyboard
+var platform = 'monkey_train' // eyelink keyboard
 // var platform = 'monkey_ephys'
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -110,7 +110,7 @@ sound/wav_file start_sound ('sounds/start.wav')
 ///////////////////////////////////////////////////////////////////////////////
 
 %define sample_2afc_trial ()
-    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    // fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
     // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
     // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
     
@@ -127,7 +127,7 @@ sound/wav_file start_sound ('sounds/start.wav')
 %end
 
 %define sample_yn_trial ()
-    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    // fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
     // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
     // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
 

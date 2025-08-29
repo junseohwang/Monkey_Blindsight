@@ -59,7 +59,7 @@ group Reward {
 group Fixation {
     var fixY = 0 (groups = Fixation)
     var fixX = 0 (groups = Fixation)
-    var fix_win = 25 (
+    var fix_win = 10 (
         groups = Fixation
         persistant = 1
         )
@@ -88,7 +88,7 @@ group 'Fixation+Pursuit' {
     var fixHz = 0.25 (groups = Fixation)
     var fixDynMag = 8 (groups = Fixation)
     var tStart = 0 (groups = Fixation)
-    var fix_pur_HoldDur = 300    (groups = Fixation)
+    var fix_pur_HoldDur = 700    (groups = Fixation)
     var fix_pur_ITI_Dur = 2000 (groups = Fixation)
     var fix_pur_timeoutDur = 500 (groups = Fixation)
 }
@@ -267,7 +267,7 @@ action/play_sound(success_sound)
             if (CorrectTrials%(2*nRep)==0){
                 pursuitTheta = 90 - pursuitTheta
                 fixX=0
-                fixY=8
+                fixY=0
             }
             if (CorrectTrials%(2*nRep)!=0){
                 if (CorrectTrials%nRep==0){

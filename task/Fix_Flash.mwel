@@ -21,9 +21,9 @@ var subject = 'monkey' // 'human'
 // %define monkey_train
 // %define monkey_ephys // labjack photodiode
 
-// var platform = 'laptop' // mouse keyboard
+var platform = 'laptop' // mouse keyboard
 // var platform = 'psychophysics' // human
-var platform = 'monkey_train' // eyelink keyboard
+//var platform = 'monkey_train' // eyelink keyboard
 // var platform = 'monkey_ephys'
 
 ///////////////////////////////////////////////////////////////////////////////

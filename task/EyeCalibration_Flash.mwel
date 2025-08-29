@@ -1,475 +1,323 @@
+//////////////////////////////////////////////////////////////
+// Platform + I/O
+//////////////////////////////////////////////////////////////
 
-/* 1) eyelink-driven (e.g. HV13)
-   2) Manual eye calibration (adjustments in eyelink)
-     ask subjects to pursue moving ball on the screen
-      1) horizon left/right for vertical center
-      2) horizon left/right for vertical upper
-      3) vertical up/down for horizontal center
-      4) vertical up/down for horizontal right
-     (optional) 5) horizon left/right for vertical lower
-     (optional) 6) vertical up/down for horizontal left
-     (optional) 7) diagonal upRight / downLeft
-     (optional) 8) diagonal upLeft / downRight
-   3) use "Eye Calibrator"
-   */
-
-
-////////////////
-// I/O Devices
-////////////////
-
-var subject = 'monkey' // 'monkey' // 'human'
-%define monkey
-// %define monkey
-
-// %define laptop
-// %define psychophysics
-%define monkey_train
-// %define monkey_ephys // labjack photodiode
-
-// var platform = 'laptop' // mouse keyboard
-// var platform = 'psychophysics' // human
-var platform = 'monkey_train' // eyelink keyboard
-// var platform = 'monkey_ephys'
+var subject = 'monkey'
+%define monkey_train               // default: EyeLink + reward
+// %define laptop                  // alt: mouse only
 
 %ifdef monkey_train
-    %include 'hand_interfaces/keyboard'
-    %include 'eye_interfaces/eyelink'
-    %include 'reward_interfaces/firmata_train'
+  %include 'hand_interfaces/keyboard'
+  %include 'eye_interfaces/eyelink'         // defines eye_x, eye_y
+  %include 'reward_interfaces/firmata_train'// defines reward_line
 %end
 
-// These directories are copied to the machine running MWServer
+%ifdef laptop
+  %include 'hand_interfaces/keyboard'
+  %include 'eye_interfaces/mouse'           // maps mouse to eye_x, eye_y
+%end
+
+//////////////////////////////////////////////////////////////
+// Sounds (optional)
+//////////////////////////////////////////////////////////////
 resource ('sounds')
-
 sound/wav_file success_sound ('sounds/success.wav')
-sound/wav_file failure_sound ('sounds/failure.wav')
-sound/wav_file pong_sound ('sounds/pong.wav')
 
-/////////////////
+//////////////////////////////////////////////////////////////
 // Variables
-/////////////////
-
-    // var space_pressed = 0 (groups = I/O)
+//////////////////////////////////////////////////////////////
 
 group Reward {
-    var reward_line = 0 (groups = Reward)
-    var rewardDur = 1000 (groups = Reward)
-    var bonusRewDur = 0  (groups = Reward)
+  var reward_line = 0 (groups = Reward)
+  var reward_ms   = 150  (groups = Reward)   // reward duration (ms)
 }
+
+group Grid {
+  // MODE: 1=center only, 2=cross (4 points), 3=full 3×3
+  var grid_mode   = 1     (groups = Grid)
+
+  var grid_cols   = 3
+  var grid_rows   = 3
+  var cell_spacing = 8    // distance (screen units) between grid cells
+
+  var center_x    = 0
+  var center_y    = 0
+
+  var x_position = 0
+  var y_position = 0
+
+  // indices in [0,1,2] (0=-1 step, 1=0 step, 2=+1 step)
+  var col_idx     = 1
+  var row_idx     = 1
+
+  // sequence counters
+  var seq_index   = 0
+  var seq_len     = 1
+  var cycles      = 1     // # times to traverse the sequence
+  var cycle_count = 0
+}
+
 group Fixation {
-    var fixY = 0 (groups = Fixation)
-    var fixX = 0 (groups = Fixation)
-    var fix_win = 25 (
-        groups = Fixation
-        persistant = 1
-        )
-    var fix_sz = 4 (groups = Fixation)
-    var NoFixWaitDur = 500 (groups = Fixation)
-    var fixWaitDur = 10000 (groups = Fixation)
-    var fixOn = 0 (groups = Fixation)
-    var fix_red = 1 (groups = Fixation)
-    var fix_green = 1 (groups = Fixation)
-    var fix_blue = 1 (groups = Fixation)
+  var fix_sz      = 4
+  var fix_win     = 25
+  var eye_on      = 0
+
+  var max_wait_ms = 10000    // response window
+  var hold_ms     = 300      // required fixation hold
+  var iti_ms      = 400
 }
 
-
-group Global {
-    var pstop = 0 (groups = Trial)
-    var startTrial = 0 (groups = Trial)
-    var endTrial = 0 (groups = Trial)
-    var localTrials = 0 (groups = Trial)
-    var CorrectTrials = 0 (groups = Trial)
-}
-group 'Fixation+Pursuit' {
-    var pursuitTheta = 0 (groups = Fixation)
-    var nRep = 1 (groups = Fixation) // 3
-    var trialNum = 1e6  (groups = Fixation)
-    var on_fix_dyn = 0 (groups = Fixation)
-    var fixHz = 0.25 (groups = Fixation)
-    var fixDynMag = 8 (groups = Fixation)
-    var tStart = 0 (groups = Fixation)
-    var fix_pur_HoldDur = 300    (groups = Fixation)
-    var fix_pur_ITI_Dur = 2000 (groups = Fixation)
-    var fix_pur_timeoutDur = 500 (groups = Fixation)
-}
-group Flash {
-    var grid_index = 0             // 0..8 (row-major through a 3x3)
-    var flashes_per_target = 1     // # of on/off flashes before advancing
-    var flash_on_ms = 250          // ON duration (ms)
-    var flash_off_ms = 400         // OFF duration (ms)
-    var flash_rep = 0              // repetition counter at current target
-    var cycles = 1                 // how many times to traverse the whole 3x3
-    var completed_cycles = 0
-    var do_repeat = 0
+group Stats {
+  var trials      = 0
+  var hits        = 0
 }
 
-group Matlab {
-    var sync = 0 (groups = Matlab)
-    var Nback = 100 (
-        groups = Matlab
-        persistant = 1
-        )
-}
+//////////////////////////////////////////////////////////////
+// Stimulus
+//////////////////////////////////////////////////////////////
 
-group EyeCalibrator {
-    var cal_fixation_duration = 800ms
-    var cal_fix_pos_x = 0 (scope = local)
-    var cal_fix_pos_y = 0 (scope = local)
-    var num_stims_shown = 0
-    var miss_count = 0
-    var success = 0
-    var failure = 0
-    var ignore = 0
+circular_fixation_point cal_dot (
+  color = 1,1,1
+  trigger_width = fix_win
+  trigger_watch_x = eye_x
+  trigger_watch_y = eye_y
+  trigger_flag   = eye_on
+  x_size = fix_sz
+  y_size = fix_sz
+  x_position = 0
+  y_position = 0
+)
 
-    var fixation_width = 10                      //Y: was 1
-    var fixation_point_size = 0.65               //Y: was 0.4
-    var fixation_pos_x = 0
-    var fixation_pos_y = 0
+//////////////////////////////////////////////////////////////
+// Helpers (as actions inside states)
+//////////////////////////////////////////////////////////////
 
-    var fixation_point_r = 0                 //Y: was var
-    var fixation_point_g = 0                 //Y: was var
-    var fixation_point_b = 0                 //Y: was var
-    var eye_on_fixation_point = false
-}
+// Compute x,y from (row_idx,col_idx) and center/spacing
+// Note: row 0 = top, row 2 = bottom  => y flips sign
+// col 0 = left, col 2 = right
+// Use these assignments wherever we “move” the dot:
+///  cal_dot.x_position = center_x + (col_idx - 1) * cell_spacing
+///  cal_dot.y_position = center_y + (1 - row_idx) * cell_spacing
 
-group labjack{
-    var labjack_target_on = 0
-    var labjack_cue_on = 0
-    var t_labjack_cue_on=0
-}
+//////////////////////////////////////////////////////////////
+// Protocol
+//////////////////////////////////////////////////////////////
 
-///////////
-// Sounds
-///////////
+protocol 'Calib_Grid' {
+  start_device_io (eye_tracker)
+  start_io_device (firmata)
 
+  queue_stimulus (cal_dot)
+  update_stimulus_display ()
 
-////////////
-// Stimuli
-////////////
+  task Trials {
 
-group 'Global' {
-    white_noise_background 'White Noise Background' ()
-    blank_screen 'New Blank Screen' (color = 0,0,0)
-}
-group 'Fixation+Pursuit 2' {
-    frame_list dynamicFix (
-        stimulus_group = dynamicFixFrames
-        loop = YES
-        autoplay = YES
-        )
-    stimulus_group dynamicFixFrames {
-        circular_fixation_point fixCircleDyn (
-            color = fix_red,fix_green,fix_blue
-            trigger_width = fix_win
-            trigger_watch_x = eye_x
-            trigger_watch_y = eye_y
-            trigger_flag = on_fix_dyn
-            x_size = fix_sz
-            y_size = fix_sz
-            x_position = fixX+cos(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
-            y_position = fixY+sin(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
-            rotation = 0
-            alpha_multiplier = 1
-            )
+    //////////////////////////////////////////////////////////
+    // Initialize sequence based on grid_mode
+    //////////////////////////////////////////////////////////
+    state 'Init' {
+      trials      = 0
+      hits        = 0
+      seq_index   = 0
+      cycle_count = 0
+
+      // set seq_len and starting (row,col)
+      if (grid_mode == 1) {           // center only
+        seq_len = 1
+        row_idx = 1 
+        col_idx = 1
+      }
+      if (grid_mode == 2) {           // cross (Up, Right, Down, Left)
+        seq_len = 4
+        row_idx = 0 
+        col_idx = 1      // start at Up
+      }
+      if (grid_mode == 3) {           // full 3×3 (top-left start)
+        seq_len = 9
+        row_idx = 0 
+        col_idx = 0
+      }
+
+      // place dot
+      x_position = center_x + (col_idx - 1) * cell_spacing
+      y_position = center_y + (1 - row_idx) * cell_spacing
+
+      update_stimulus_display ()
+      goto ('Wait Fix')
     }
-}
 
-circular_fixation_point fixation_point (
-    trigger_width = fixation_width
-    trigger_watch_x = eye_x
-    trigger_watch_y = eye_y
-    trigger_flag = eye_on_fixation_point
-    //color = 0,0,0                                               //Y: was 1,0,0
-    color = fixation_point_r, fixation_point_g, fixation_point_b  //Y: added this so we can send to blackrock
-    x_size =1// fixation_point_size
-    x_position = fixation_pos_x
-    y_position = fixation_pos_y
-    )
+    //////////////////////////////////////////////////////////
+    // Wait for fixation within response window
+    //////////////////////////////////////////////////////////
+    state 'Wait Fix' {
+      trials = trials + 1
 
-
-///////////////
-// Protocols
-///////////////
-
-
-protocol 'Manual+Flash' {
-    start_device_io (eye_tracker)
-    queue_stimulus ('New Blank Screen')
-    update_stimulus_display ()
-    task Trials {
-        state 'Initial' {
-            localTrials = 0
-            CorrectTrials = 0
-            completed_cycles = 0
-            grid_index = 0
-            flash_rep = 0
-
-            // start reward device
-            start_io_device (firmata)
-
-            // position first target on the 3x3 grid using fixDynMag as step
-            fixation_pos_x = (-fixDynMag) + fixDynMag * (mod(grid_index,3))
-            fixation_pos_y = ( fixDynMag) - fixDynMag * (floor(grid_index/3))
-
-            // visible color (white); off state will be black on black
-            fixation_point_r = 1
-            fixation_point_g = 1
-            fixation_point_b = 1
-
-            live_queue_stimulus (fixation_point)
-            update_stimulus_display ()
-            goto ('Fix On')
-        }
-        state 'Fix On' {
-            fixation_point_r = 1
-            fixation_point_g = 1
-            fixation_point_b = 1
-            tStart = nextFrameTime()
-            update_stimulus_display ()
-            start_timer (
-                timer = FlashOn
-                duration = flash_on_ms // 10000
-                duration_units = ms
-                )
-            start_timer (
-                timer = fixWait
-                duration = fixWaitDur // 10000
-                duration_units = ms
-                )
-            goto (
-                target = 'Trial Start'
-                when = eye_on_fixation_point
-                )
-            timer_expired (
-                target = 'Target Off'
-                timer = FlashOn
-                )
-            timer_expired (
-                target = 'Failure to fixate'
-                timer = fixWait
-                )
-        }
-        state 'Trial Start' {
-            report ('Fixation acquired.')
-            startTrial = 1
-            start_timer (
-                timer = HoldFix
-                duration = fix_pur_HoldDur // 2500
-                duration_units = ms
-                )
-            goto (
-                target = Bad
-                when = !eye_on_fixation_point
-                )
-            timer_expired (
-                target = Reward
-                timer = HoldFix
-                )
-        }
-        state Reward {
-            report ('Success!')
-            CorrectTrials = CorrectTrials+1
-
-action/play_sound(success_sound)
-            fix_red = 0
-            fix_blue = 0
-
-            reward_line = true
-
-            start_timer (
-                timer = GreenTime
-                duration = rewardDur+bonusRewDur
-                duration_units = ms
-                )
-            timer_expired (
-                target = 'End Trial'
-                timer = GreenTime
-                )
-        }
-        state 'End Trial' {
-            report ('Ending Trial.')
-            reward_line = false
-            dequeue_stimulus (dynamicFix)
-            update_stimulus_display ()
-
-            /*  1) horizon left/right for vertical center
-                2) horizon left/right for vertical upper
-                3) vertical up/down for horizontal center
-                4) vertical up/down for horizontal right
-                */
-
-            if (CorrectTrials%(2*nRep)==0){
-                pursuitTheta = 90 - pursuitTheta
-                fixX=0
-                fixY=8
-            }
-            if (CorrectTrials%(2*nRep)!=0){
-                if (CorrectTrials%nRep==0){
-                    if (pursuitTheta==0){ // horizontal -> move up
-                        fixY = fixDynMag // 8
-                        fixX = 0
-                    }
-                    if (pursuitTheta==90){ // vertical -> mve right
-                        fixX = fixDynMag
-                        fixY = 8
-                    }
-                }
-            }
-
-            localTrials = localTrials+1
-            endTrial = 1
-
-            // prepare next target in the 3x3
-            flash_rep = 0
-            grid_index = grid_index + 1
-
-            goto (
-                target = 'Grid Done?'
-                when = (grid_index >= 9)
-                )
-
-            // position next target
-            fixation_pos_x = (-fixDynMag) + fixDynMag * (mod(grid_index,3))
-            fixation_pos_y = ( fixDynMag) - fixDynMag * (floor(grid_index/3))
-
-            goto (ITI)
-        }
-        state ITI {
-            report ('ITI.')
-            // dot OFF during ITI
-            fixation_point_r = 0 
-            fixation_point_g = 0 
-            fixation_point_b = 0
-            update_stimulus_display ()
-            start_timer (
-                timer = fix_pur_ITI
-                duration = fix_pur_ITI_Dur // 250
-                duration_units = ms
-                )
-            timer_expired (
-                target = 'Fix On'
-                timer = fix_pur_ITI
-                )
-        }
-        state Bad {
-            report ('Trial Failed.')
-            dequeue_stimulus (dynamicFix)
-            update_stimulus_display ()
-            start_timer (
-                timer = fix_pur_timeout
-                duration = fix_pur_timeoutDur // 500
-                duration_units = ms
-                )
-            timer_expired (
-                target = 'End Trial'
-                timer = fix_pur_timeout
-                )
-        }
-        state 'Failure to fixate' {
-            report ('Failure to fixate.')
-            dequeue_stimulus (dynamicFix)
-            start_timer (
-                timer = NoFixWait
-                duration = NoFixWaitDur  // 500
-                duration_units = ms
-                )
-            timer_expired (
-                target = 'Fix On'
-                timer = NoFixWait
-                )
-        }
-        state 'Target Off' {
-            fixation_point_r = 0 
-            fixation_point_g = 0 
-            fixation_point_b = 0
-            update_stimulus_display ()
-
-            start_timer (
-                timer = FlashOff 
-                duration = flash_off_ms 
-                duration_units = ms
-                )
-            timer_expired (
-                target = 'Decide Repeat' 
-                timer = FlashOff
-                )
-        }
-        state 'Decide Repeat' {
-            // compute whether we should flash again at this target
-            do_repeat = (flash_rep + 1) < flashes_per_target
-
-            // branch via transitions (NOT inside an if/else)
-            goto (
-                target = 'Repeat Flash'   
-                when = do_repeat
-                )
-            goto (
-                target = 'Advance Target' 
-                when = !do_repeat
-                )
-        }
-        state 'Decide Repeat' {
-            // compute whether we should flash again at this target
-            do_repeat = (flash_rep + 1) < flashes_per_target
-
-            // branch via transitions (NOT inside an if/else)
-            goto (
-                target = 'Repeat Flash'   
-                when = do_repeat
-                )
-            goto (
-                target = 'Advance Target'
-                when = !do_repeat
-                )
-        }
-        state 'Advance Target' {
-            // advance to next 3x3 cell
-            flash_rep = 0
-            localTrials = localTrials + 1
-            grid_index = grid_index + 1
-
-            // finished all 9 cells?
-            goto (
-                target = 'Grid Done?' 
-                when = (grid_index >= 9)
-                )
-
-            // position next target and go ON again
-            fixation_pos_x = (-fixDynMag) + fixDynMag * (mod(grid_index,3))
-            fixation_pos_y = ( fixDynMag) - fixDynMag * (floor(grid_index/3))
-            goto ('Fix On')
-        }
-
-
-        state 'Grid Done?' {
-            completed_cycles = completed_cycles + 1
-            goto (
-                target = 'Exit Fixation Pursuit System' 
-                when = (completed_cycles >= cycles)
-                )
-
-            // reset for another full 3×3 pass
-            grid_index = 0
-            flash_rep = 0
-            fixation_pos_x = (-fixDynMag) + fixDynMag * (mod(grid_index,3))
-            fixation_pos_y = ( fixDynMag) - fixDynMag * (floor(grid_index/3))
-            goto ('Fix On')
-        }
-
-        state 'Exit Fixation Pursuit System' {
-            report ('Leaving state system')
-            yield ()
-        }
+      start_timer ( 
+        timer = MaxWait
+        duration = max_wait_ms 
+        duration_units = ms 
+        )
+      goto ( 
+        target = 'Hold'      
+        when = eye_on 
+        )
+      timer_expired ( 
+        target = 'Timeout' 
+        timer = MaxWait 
+        )
     }
-}
 
-protocol 'eyelink' {
-    eyelink_tracker_setup (
-        device = eye_tracker
-        calibration_type = HV13
+    //////////////////////////////////////////////////////////
+    // Require a steady hold to count as success
+    //////////////////////////////////////////////////////////
+    state 'Hold' {
+      start_timer ( 
+        timer = HoldT 
+        duration = hold_ms 
+        duration_units = ms 
+        )
+      goto ( 
+        target = 'Break' 
+        when = !eye_on 
+        )
+      timer_expired ( 
+        target = 'Reward' 
+        timer = HoldT 
+        )
+    }
+
+    state 'Break' {
+      goto ('Wait Fix')
+    }
+
+    //////////////////////////////////////////////////////////
+    // Reward & move on
+    //////////////////////////////////////////////////////////
+    state 'Reward' {
+      hits = hits + 1
+      action/play_sound (success_sound)
+
+      pulse ( 
+        variable = reward_line 
+        duration = reward_ms * 1000 
+        )  // microseconds
+      goto ('Advance')
+    }
+
+    state 'Timeout' {
+      goto ('Advance')
+    }
+
+    //////////////////////////////////////////////////////////
+    // Advance through the chosen sequence
+    //////////////////////////////////////////////////////////
+    state 'Advance' {
+      // progress the sequence counter
+      seq_index = seq_index + 1
+
+      // finished this pass?
+      goto ( 
+        target = 'Cycle Done' 
+        when = (seq_index >= seq_len) 
         )
 
-    start_io_device (eye_tracker)
+      // otherwise set next (row,col) by mode
+      if (grid_mode == 1) {
+        // stays at center; nothing to change
+      }
 
-    wait (600s)
+      if (grid_mode == 2) {
+        // order: Up(0,1) → Right(1,2) → Down(2,1) → Left(1,0)
+        if (seq_index == 0) { 
+            row_idx = 0 
+            col_idx = 1 
+            }   // Up (already used at init)
+        if (seq_index == 1) { 
+            row_idx = 1 
+            col_idx = 2 
+            }   // Right
+        if (seq_index == 2) { 
+            row_idx = 2
+            col_idx = 1
+            }   // Down
+        if (seq_index == 3) { 
+            row_idx = 1
+            col_idx = 0
+            }   // Left
+      }
+
+      if (grid_mode == 3) {
+        // left→right, top→bottom stepping
+        if (col_idx < 2) {
+          col_idx = col_idx + 1
+        } 
+        else {
+          col_idx = 0
+          if (row_idx < 2) { 
+            row_idx = row_idx + 1 
+            } 
+          else { 
+            row_idx = 0 
+            }
+        }
+      }
+
+      // move dot
+      x_position = center_x + (col_idx - 1) * cell_spacing
+      y_position = center_y + (1 - row_idx) * cell_spacing
+
+      update_stimulus_display ()
+      goto ('ITI')
+    }
+
+    state 'Cycle Done' {
+      cycle_count = cycle_count + 1
+      goto ( 
+        target = 'Exit' 
+        when = (cycle_count >= cycles) 
+        )
+
+      // reset for another pass
+      seq_index = 0
+      if (grid_mode == 1) { 
+        row_idx = 1
+        col_idx = 1
+        }
+      if (grid_mode == 2) { 
+        row_idx = 0
+        col_idx = 1
+        }
+      if (grid_mode == 3) { 
+        row_idx = 0
+        col_idx = 0
+        }
+
+      x_position = center_x + (col_idx - 1) * cell_spacing
+      y_position = center_y + (1 - row_idx) * cell_spacing
+
+      update_stimulus_display ()
+      goto ('ITI')
+    }
+
+    //////////////////////////////////////////////////////////
+    // ITI (dot stays visible; set to 0,0,0 if you want OFF)
+    //////////////////////////////////////////////////////////
+    state 'ITI' {
+      start_timer ( 
+        timer = ITI 
+        duration = iti_ms 
+        duration_units = ms 
+        )
+      timer_expired ( 
+        target = 'Wait Fix' 
+        timer = ITI 
+        )
+    }
+
+    state 'Exit' {
+      dequeue_stimulus (cal_dot)
+      update_stimulus_display ()
+      yield ()
+    }
+  }
 }
