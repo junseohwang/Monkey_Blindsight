@@ -1,0 +1,1213 @@
+/*
+Face 2AFC / YN Main Experiment
+================================
+Structure:
+  - 2AFC and YN blocks interleaved (time-based switching, block_duration ms each)
+  - Contrast staircase runs during 2AFC blocks only (3-down-1-up, log scale)
+  - YN blocks use the last contrast value from the preceding 2AFC block
+  - No correction trials
+  - Counterbalanced trial order within each block:
+      2AFC: 6-trial blocks  (2 stim_id × 3 face_index)
+      YN:  12-trial blocks  (2 stim_id × 2 blank_id × 3 face_index)
+*/
+
+///////////////////////////////////////////////////////////////////////////////
+// Platform
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'human'
+//%define human
+%define monkey
+
+// %define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys
+
+// var platform = 'laptop'        // mouse + keyboard (no eye tracker)
+// var platform = 'psychophysics' // human, eyelink
+var platform = 'monkey_train'     // eyelink + reward
+// var platform = 'monkey_ephys'  // eyelink + labjack
+
+///////////////////////////////////////////////////////////////////////////////
+// I/O Devices
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Data file
+///////////////////////////////////////////////////////////////////////////////
+
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file ('set_stimuli.py')
+
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))")
+
+///////////////////////////////////////////////////////////////////////////////
+// Sounds
+///////////////////////////////////////////////////////////////////////////////
+
+resource ('sounds')
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound    ('sounds/pong.wav')
+sound/wav_file start_sound   ('sounds/start.wav')
+sound/wav_file stimulus_cue ('sounds/stimulus_cue.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+// Variables / Stimuli
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// Block Queue — same shuffle logic as training
+///////////////////////////////////////////////////////////////////////////////
+
+%define refill_2afc_block ()
+    bq_0 = 0
+    bq_1 = 1
+    bq_2 = 2
+    bq_3 = 3
+    bq_4 = 4
+    bq_5 = 5
+
+    bq_j = disc_rand(0, 5)
+    bq_swap = bq_0
+    if (bq_j == 1) {
+        bq_0 = bq_1
+        bq_1 = bq_swap
+    }
+    if (bq_j == 2) {
+        bq_0 = bq_2
+        bq_2 = bq_swap
+    }
+    if (bq_j == 3) {
+        bq_0 = bq_3
+        bq_3 = bq_swap
+    }
+    if (bq_j == 4) {
+        bq_0 = bq_4
+        bq_4 = bq_swap
+    }
+    if (bq_j == 5) {
+        bq_0 = bq_5
+        bq_5 = bq_swap
+    }
+
+    bq_j = disc_rand(1, 5)
+    bq_swap = bq_1
+    if (bq_j == 2) {
+        bq_1 = bq_2
+        bq_2 = bq_swap
+    }
+    if (bq_j == 3) {
+        bq_1 = bq_3
+        bq_3 = bq_swap
+    }
+    if (bq_j == 4) {
+        bq_1 = bq_4
+        bq_4 = bq_swap
+    }
+    if (bq_j == 5) {
+        bq_1 = bq_5
+        bq_5 = bq_swap
+    }
+
+    bq_j = disc_rand(2, 5)
+    bq_swap = bq_2
+    if (bq_j == 3) {
+        bq_2 = bq_3
+        bq_3 = bq_swap
+    }
+    if (bq_j == 4) {
+        bq_2 = bq_4
+        bq_4 = bq_swap
+    }
+    if (bq_j == 5) {
+        bq_2 = bq_5
+        bq_5 = bq_swap
+    }
+
+    bq_j = disc_rand(3, 5)
+    bq_swap = bq_3
+    if (bq_j == 4) {
+        bq_3 = bq_4
+        bq_4 = bq_swap
+    }
+    if (bq_j == 5) {
+        bq_3 = bq_5
+        bq_5 = bq_swap
+    }
+
+    bq_j = disc_rand(4, 5)
+    bq_swap = bq_4
+    if (bq_j == 5) {
+        bq_4 = bq_5
+        bq_5 = bq_swap
+    }
+
+    block_pos = 0
+    report('2AFC block refilled')
+%end
+
+%define refill_yn_block ()
+    bq_0  = 0
+    bq_1  = 1
+    bq_2  = 2
+    bq_3  = 3
+    bq_4  = 4
+    bq_5  = 5
+    bq_6  = 6
+    bq_7  = 7
+    bq_8  = 8
+    bq_9  = 9
+    bq_10 = 10
+    bq_11 = 11
+
+    bq_j = disc_rand(0,11)
+    bq_swap = bq_0
+    if (bq_j ==  1) {
+        bq_0 = bq_1
+        bq_1  = bq_swap
+    }
+    if (bq_j ==  2) {
+        bq_0 = bq_2
+        bq_2  = bq_swap
+    }
+    if (bq_j ==  3) {
+        bq_0 = bq_3
+        bq_3  = bq_swap
+    }
+    if (bq_j ==  4) {
+        bq_0 = bq_4
+        bq_4  = bq_swap
+    }
+    if (bq_j ==  5) {
+        bq_0 = bq_5
+        bq_5  = bq_swap
+    }
+    if (bq_j ==  6) {
+        bq_0 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_0 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_0 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_0 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_0 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_0 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(1,11)
+    bq_swap = bq_1
+    if (bq_j ==  2) {
+        bq_1 = bq_2
+        bq_2  = bq_swap
+    }
+    if (bq_j ==  3) {
+        bq_1 = bq_3
+        bq_3  = bq_swap
+    }
+    if (bq_j ==  4) {
+        bq_1 = bq_4
+        bq_4  = bq_swap
+    }
+    if (bq_j ==  5) {
+        bq_1 = bq_5
+        bq_5  = bq_swap
+    }
+    if (bq_j ==  6) {
+        bq_1 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_1 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_1 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_1 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_1 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_1 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(2,11)
+    bq_swap = bq_2
+    if (bq_j ==  3) {
+        bq_2 = bq_3
+        bq_3  = bq_swap
+    }
+    if (bq_j ==  4) {
+        bq_2 = bq_4
+        bq_4  = bq_swap
+    }
+    if (bq_j ==  5) {
+        bq_2 = bq_5
+        bq_5  = bq_swap
+    }
+    if (bq_j ==  6) {
+        bq_2 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_2 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_2 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_2 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_2 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_2 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(3,11)
+    bq_swap = bq_3
+    if (bq_j ==  4) {
+        bq_3 = bq_4
+        bq_4  = bq_swap
+    }
+    if (bq_j ==  5) {
+        bq_3 = bq_5
+        bq_5  = bq_swap
+    }
+    if (bq_j ==  6) {
+        bq_3 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_3 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_3 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_3 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_3 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_3 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(4,11)
+    bq_swap = bq_4
+    if (bq_j ==  5) {
+        bq_4 = bq_5
+        bq_5  = bq_swap
+    }
+    if (bq_j ==  6) {
+        bq_4 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_4 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_4 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_4 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_4 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_4 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(5,11)
+    bq_swap = bq_5
+    if (bq_j ==  6) {
+        bq_5 = bq_6
+        bq_6  = bq_swap
+    }
+    if (bq_j ==  7) {
+        bq_5 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_5 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_5 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_5 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_5 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(6,11)
+    bq_swap = bq_6
+    if (bq_j ==  7) {
+        bq_6 = bq_7
+        bq_7  = bq_swap
+    }
+    if (bq_j ==  8) {
+        bq_6 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_6 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_6 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_6 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(7,11)
+    bq_swap = bq_7
+    if (bq_j ==  8) {
+        bq_7 = bq_8
+        bq_8  = bq_swap
+    }
+    if (bq_j ==  9) {
+        bq_7 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_7 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_7 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(8,11)
+    bq_swap = bq_8
+    if (bq_j ==  9) {
+        bq_8 = bq_9
+        bq_9  = bq_swap
+    }
+    if (bq_j == 10) {
+        bq_8 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_8 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(9,11)
+    bq_swap = bq_9
+    if (bq_j == 10) {
+        bq_9 = bq_10
+        bq_10 = bq_swap
+    }
+    if (bq_j == 11) {
+        bq_9 = bq_11
+        bq_11 = bq_swap
+    }
+
+    bq_j = disc_rand(10,11)
+    bq_swap = bq_10
+    if (bq_j == 11) {
+        bq_10 = bq_11
+        bq_11 = bq_swap
+    }
+
+    block_pos = 0
+    report('YN block refilled')
+%end
+
+%define decode_2afc_combo (combo)
+    blank_id = 0
+    if (combo == 0) {
+        stim_id = 0
+        face_index = 1
+    }
+    if (combo == 1) {
+        stim_id = 0
+        face_index = 2
+    }
+    if (combo == 2) {
+        stim_id = 0
+        face_index = 3
+    }
+    if (combo == 3) {
+        stim_id = 1
+        face_index = 1
+    }
+    if (combo == 4) {
+        stim_id = 1
+        face_index = 2
+    }
+    if (combo == 5) {
+        stim_id = 1
+        face_index = 3
+    }
+%end
+
+%define decode_yn_combo (combo)
+    if (combo ==  0) {
+        stim_id = 0
+        blank_id = 0
+        face_index = 1
+    }
+    if (combo ==  1) {
+        stim_id = 0
+        blank_id = 0
+        face_index = 2
+    }
+    if (combo ==  2) {
+        stim_id = 0
+        blank_id = 0
+        face_index = 3
+    }
+    if (combo ==  3) {
+        stim_id = 0
+        blank_id = 1
+        face_index = 1
+    }
+    if (combo ==  4) {
+        stim_id = 0
+        blank_id = 1
+        face_index = 2
+    }
+    if (combo ==  5) {
+        stim_id = 0
+        blank_id = 1
+        face_index = 3
+    }
+    if (combo ==  6) {
+        stim_id = 1
+        blank_id = 0
+        face_index = 1
+    }
+    if (combo ==  7) {
+        stim_id = 1
+        blank_id = 0
+        face_index = 2
+    }
+    if (combo ==  8) {
+        stim_id = 1
+        blank_id = 0
+        face_index = 3
+    }
+    if (combo ==  9) {
+        stim_id = 1
+        blank_id = 1
+        face_index = 1
+    }
+    if (combo == 10) {
+        stim_id = 1
+        blank_id = 1
+        face_index = 2
+    }
+    if (combo == 11) {
+        stim_id = 1
+        blank_id = 1
+        face_index = 3
+    }
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Trial Samplers
+///////////////////////////////////////////////////////////////////////////////
+
+%define sample_2afc_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+
+    if (block_pos >= 6) {
+        refill_2afc_block()
+    }
+    if (block_pos == 0) {
+        decode_2afc_combo(bq_0)
+    }
+    if (block_pos == 1) {
+        decode_2afc_combo(bq_1)
+    }
+    if (block_pos == 2) {
+        decode_2afc_combo(bq_2)
+    }
+    if (block_pos == 3) {
+        decode_2afc_combo(bq_3)
+    }
+    if (block_pos == 4) {
+        decode_2afc_combo(bq_4)
+    }
+    if (block_pos == 5) {
+        decode_2afc_combo(bq_5)
+    }
+    block_pos = block_pos + 1
+
+    targetX  = (1 - 2 * stim_id) * target_eccentricity
+    targetY  = 0
+    targetSX = -targetX
+    targetSY = 0
+
+    // 2AFC always uses current_contrast (staircase active)
+    face_alpha      = current_contrast
+    scrambled_alpha = current_contrast
+%end
+
+%define sample_yn_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+
+    if (block_pos >= 12) {
+        refill_yn_block()
+    }
+    if (block_pos ==  0) {
+        decode_yn_combo(bq_0)
+    }
+    if (block_pos ==  1) {
+        decode_yn_combo(bq_1)
+    }
+    if (block_pos ==  2) {
+        decode_yn_combo(bq_2)
+    }
+    if (block_pos ==  3) {
+        decode_yn_combo(bq_3)
+    }
+    if (block_pos ==  4) {
+        decode_yn_combo(bq_4)
+    }
+    if (block_pos ==  5) {
+        decode_yn_combo(bq_5)
+    }
+    if (block_pos ==  6) {
+        decode_yn_combo(bq_6)
+    }
+    if (block_pos ==  7) {
+        decode_yn_combo(bq_7)
+    }
+    if (block_pos ==  8) {
+        decode_yn_combo(bq_8)
+    }
+    if (block_pos ==  9) {
+        decode_yn_combo(bq_9)
+    }
+    if (block_pos == 10) {
+        decode_yn_combo(bq_10)
+    }
+    if (block_pos == 11) {
+        decode_yn_combo(bq_11)
+    }
+    block_pos = block_pos + 1
+
+    if (stim_id == 1) {
+        targetX  = -target_eccentricity
+        targetSX =  target_eccentricity
+    }
+    if (stim_id == 0) {
+        targetX  =  target_eccentricity
+        targetSX = -target_eccentricity
+    }
+    targetY  = 0
+    targetSY = 0
+
+    // YN uses current_contrast (last value set by 2AFC staircase)
+    face_alpha      = current_contrast
+    scrambled_alpha = current_contrast
+
+    if (blank_id == stim_id) {
+        face_alpha = 0.0
+    }
+    if (blank_id != stim_id) {
+        scrambled_alpha = 0.0
+    }
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Contrast staircase — 3-down-1-up, log scale, 2AFC only
+///////////////////////////////////////////////////////////////////////////////
+
+%define update_contrast_success ()
+    if (task_mode == 1) {
+        consecutive_corrects = consecutive_corrects + 1
+        if (consecutive_corrects >= 3) {
+            if (previous_direction == 1) {
+                contrast_step_factor = 1.0 - (1.0 - contrast_step_factor) * contrast_step_shrink
+                if (contrast_step_factor > contrast_step_factor_min) {
+                    contrast_step_factor = contrast_step_factor_min
+                }
+            }
+            current_contrast = current_contrast * contrast_step_factor
+            if (current_contrast < 0.01) {
+                current_contrast = 0.01
+            }
+            previous_direction   = -1
+            consecutive_corrects = 0
+            report('CONTRAST DOWN: contrast=$current_contrast step_factor=$contrast_step_factor')
+        }
+    }
+%end
+
+%define update_contrast_failure ()
+    if (task_mode == 1) {
+        if (previous_direction == -1) {
+            contrast_step_factor = 1.0 - (1.0 - contrast_step_factor) * contrast_step_shrink
+            if (contrast_step_factor > contrast_step_factor_min) {
+                contrast_step_factor = contrast_step_factor_min
+            }
+        }
+        current_contrast = current_contrast / contrast_step_factor
+        if (current_contrast > 1.0) {
+            current_contrast = 1.0
+        }
+        previous_direction   = 1
+        consecutive_corrects = 0
+        report('CONTRAST UP: contrast=$current_contrast step_factor=$contrast_step_factor')
+    }
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Performance reporting
+///////////////////////////////////////////////////////////////////////////////
+
+%define update_performance_metrics (outcome)
+    session_valid_trials = session_valid_trials + 1
+    if (outcome == 1) {
+        session_correct_count = session_correct_count + 1
+    }
+    if (session_valid_trials > 0) {
+        session_accuracy = session_correct_count / session_valid_trials
+    }
+    report('Trial $session_valid_trials | Acc=$session_accuracy | Contrast=$current_contrast | Task=$task_mode')
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Main Experiment Protocol
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'Main Experiment' {
+    start_device_io (eye_tracker)
+
+    %ifdef monkey_ephys
+        start_io_device (labjack)
+    %end
+
+    update_stimulus_display ()
+
+    task Trials {
+        state 'Initial' {
+            // Trial counters
+            localTrials           = 0
+            CorrectTrials         = 0
+            IncorrectTrials       = 0
+            endTrial              = 0
+
+            // Session stats
+            session_valid_trials  = 0
+            session_correct_count = 0
+            session_left_choices  = 0
+            session_accuracy      = 0.0
+            session_bias          = 0.0
+
+            // Task mode + block
+            task_mode         = 1
+            block_start_time  = now()
+            block_pos         = 99
+
+            // Staircase state
+            consecutive_corrects = 0
+            previous_direction   = 0
+            contrast_step_factor = contrast_step_factor_init
+
+            // Stimulus alphas
+            face_alpha      = 1.0
+            scrambled_alpha = 1.0
+
+            goto ('ITI')
+        }
+
+        // ── ITI ──────────────────────────────────────────────────────────────
+        state 'ITI' {
+
+            // Block switching (time-based)
+            if ((now() - block_start_time) / 1e6 >= block_duration) {
+                task_mode        = 1 - task_mode
+                block_start_time = now()
+                block_pos        = 99
+                if (task_mode == 1) {
+                    report('BLOCK SWITCH: Now 2AFC')
+                }
+                if (task_mode == 0) {
+                    report('BLOCK SWITCH: Now YN')
+                }
+            }
+
+            // Sample next trial
+            if (task_mode == 1) {
+                sample_2afc_trial()
+            }
+            if (task_mode == 0) {
+                sample_yn_trial()
+            }
+
+            wait(ITI * 1000)
+            goto ('Fix On')
+        }
+
+        // ── Fix On ───────────────────────────────────────────────────────────
+        state 'Fix On' {
+            live_queue_stimulus(fixCircleStatic)
+            update_stimulus_display()
+
+            tStart     = now()
+            startTrial = 1
+            id_bad     = 0
+            report('Fix on | task=$task_mode stim=$stim_id blank=$blank_id face=$face_index contrast=$current_contrast')
+
+            start_timer (
+                timer          = fixWait
+                duration       = fixWaitDur
+                duration_units = ms
+            )
+            goto (
+                target = 'Static Fix'
+                when   = (on_fix_static && block_pos >= 0)
+            )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer  = fixWait
+            )
+        }
+
+        // ── Static Fix ───────────────────────────────────────────────────────
+        state 'Static Fix' {
+            localTrials = localTrials + 1
+            tFix        = now()
+            id_bad      = 1
+
+            start_timer (
+                timer          = StaticFixWait
+                duration       = fixTimeDur
+                duration_units = ms
+            )
+            goto (
+                target = 'Bad'
+                when   = (!on_fix_static)
+            )
+            timer_expired (
+                target = 'Target On'
+                timer  = StaticFixWait
+            )
+        }
+
+        // ── Target On ────────────────────────────────────────────────────────
+        state 'Target On' {
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+            %end
+
+            if (task_mode == 1) {
+                if (face_index == 1) {
+                    queue_stimulus(monkey_face_1)
+                }
+                if (face_index == 2) {
+                    queue_stimulus(monkey_face_2)
+                }
+                if (face_index == 3) {
+                    queue_stimulus(monkey_face_3)
+                }
+                if (face_index == 1) {
+                    queue_stimulus(monkey_scrambled_1)
+                }
+                if (face_index == 2) {
+                    queue_stimulus(monkey_scrambled_2)
+                }
+                if (face_index == 3) {
+                    queue_stimulus(monkey_scrambled_3)
+                }
+            }
+
+            if (task_mode == 0) {
+                if (face_alpha > 0.0) {
+                    if (face_index == 1) {
+                        queue_stimulus(monkey_face_1)
+                    }
+                    if (face_index == 2) {
+                        queue_stimulus(monkey_face_2)
+                    }
+                    if (face_index == 3) {
+                        queue_stimulus(monkey_face_3)
+                    }
+                }
+                if (scrambled_alpha > 0.0) {
+                    if (face_index == 1) {
+                        queue_stimulus(monkey_scrambled_1)
+                    }
+                    if (face_index == 2) {
+                        queue_stimulus(monkey_scrambled_2)
+                    }
+                    if (face_index == 3) {
+                        queue_stimulus(monkey_scrambled_3)
+                    }
+                }
+            }
+
+            play_sound (stimulus_cue)
+            update_stimulus_display()
+            id_bad = 2
+            labjack_target_on = 1
+
+            start_timer (
+                timer          = timer_target_on
+                duration       = targetTimeDur
+                duration_units = ms
+            )
+            goto (
+                target = 'Bad'
+                when   = (!on_fix_static)
+            )
+            timer_expired (
+                target = 'Noise Mask'
+                timer  = timer_target_on
+            )
+        }
+
+        // ── Noise Mask ───────────────────────────────────────────────────────
+        state 'Noise Mask' {
+            id_bad = 3
+
+            dequeue_stimulus(monkey_face_1)
+            dequeue_stimulus(monkey_face_2)
+            dequeue_stimulus(monkey_face_3)
+            dequeue_stimulus(monkey_scrambled_1)
+            dequeue_stimulus(monkey_scrambled_2)
+            dequeue_stimulus(monkey_scrambled_3)
+
+            mask_index = disc_rand(1, 50)
+            queue_stimulus(noise_mask_face)
+            queue_stimulus(noise_mask_scrambled)
+            live_queue_stimulus(fixCircleStatic)
+            update_stimulus_display()
+
+            start_timer (
+                timer          = timer_mask_on
+                duration       = maskTimeDur
+                duration_units = ms
+            )
+            goto (
+                target = 'Bad'
+                when   = (!on_fix_static)
+            )
+            timer_expired (
+                target = 'Fix Off'
+                timer  = timer_mask_on
+            )
+        }
+
+        // ── Fix Off ──────────────────────────────────────────────────────────
+        state 'Fix Off' {
+            id_bad = 5
+
+            dequeue_stimulus(noise_mask_face)
+            dequeue_stimulus(noise_mask_scrambled)
+            dequeue_stimulus(fixCircleStatic)
+            update_stimulus_display()
+
+            tFixOff         = now()
+            labjack_fix_off = 1
+
+            live_queue_stimulus(target_window)
+            live_queue_stimulus(nontarget_window)
+            live_queue_stimulus(correctDot)
+            live_queue_stimulus(wrongDot)
+            update_stimulus_display()
+
+            goto ('Response')
+        }
+
+        // ── Response ─────────────────────────────────────────────────────────
+        state 'Response' {
+            id_bad = 6
+
+            start_timer (
+                timer          = timer_response
+                duration       = targetWait
+                duration_units = ms
+            )
+            goto (
+                target = 'post_response'
+                when   = (on_target)
+            )
+            goto (
+                target = 'Bad'
+                when   = (on_nontarget)
+            )
+            timer_expired (
+                target = 'Timeout_Router'
+                timer  = timer_response
+            )
+        }
+
+        // ── Timeout Router ───────────────────────────────────────────────────
+        state 'Timeout_Router' {
+            id_bad = 9
+            goto ('Bad')
+        }
+
+        // ── Post Response ────────────────────────────────────────────────────
+        state 'post_response' {
+            id_bad    = 7
+            tResponse = now()
+
+            start_timer (
+                timer          = timer_post_response
+                duration       = responseRegister
+                duration_units = ms
+            )
+            goto (
+                target = 'Response'
+                when   = (!on_target)
+            )
+            timer_expired (
+                target = 'Reward'
+                timer  = timer_post_response
+            )
+        }
+
+        // ── Reward ───────────────────────────────────────────────────────────
+        state 'Reward' {
+            fix_red_static    = 0
+            fix_blue_static   = 0
+            labjack_target_on = 0
+
+            dequeue_stimulus(wrongDot)
+            dequeue_stimulus(correctDot)
+            dequeue_stimulus(target_window)
+            dequeue_stimulus(nontarget_window)
+            dequeue_stimulus(noise_mask_face)
+            dequeue_stimulus(noise_mask_scrambled)
+            dequeue_stimulus(monkey_face_1)
+            dequeue_stimulus(monkey_face_2)
+            dequeue_stimulus(monkey_face_3)
+            dequeue_stimulus(monkey_scrambled_1)
+            dequeue_stimulus(monkey_scrambled_2)
+            dequeue_stimulus(monkey_scrambled_3)
+
+            // No visual feedback in main experiment (fMRI: avoid BOLD contamination)
+            update_stimulus_display()
+
+            update_performance_metrics(1)
+            update_contrast_success()
+
+            action/play_sound(success_sound)
+            tRew = now()
+
+            %ifdef monkey_ephys
+                queue_stimulus(photodiode)
+                update_stimulus_display()
+            %end
+
+            CorrectTrials = CorrectTrials + 1
+
+            pulse (
+                variable       = reward_line
+                duration       = rewardDur * 1000
+            )
+            start_timer (
+                timer          = GreenTime
+                duration       = rewardDur
+                duration_units = ms
+            )
+            timer_expired (
+                target = 'End Trial'
+                timer  = GreenTime
+            )
+        }
+
+        // ── Failure to Fixate ────────────────────────────────────────────────
+        state 'Failure to fixate' {
+            tResponse = now()
+            start_timer (
+                timer          = NoFixWait
+                duration       = NoFixWaitDur
+                duration_units = ms
+            )
+            timer_expired (
+                target = 'End Trial'
+                timer  = NoFixWait
+            )
+        }
+
+        // ── Bad ──────────────────────────────────────────────────────────────
+        state 'Bad' {
+            tResponse = now()
+
+            // Choice error or timeout — update staircase (2AFC only via update_contrast_failure)
+            if (id_bad == 6 || id_bad == 9) {
+                update_performance_metrics(0)
+                update_contrast_failure()
+            }
+
+            // Fixation break cleanup
+            if (id_bad <= 4) {
+                dequeue_stimulus(monkey_face_1)
+                dequeue_stimulus(monkey_face_2)
+                dequeue_stimulus(monkey_face_3)
+                dequeue_stimulus(monkey_scrambled_1)
+                dequeue_stimulus(monkey_scrambled_2)
+                dequeue_stimulus(monkey_scrambled_3)
+                dequeue_stimulus(noise_mask_face)
+                dequeue_stimulus(noise_mask_scrambled)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(nontarget_window)
+                dequeue_stimulus(fixCircleStatic)
+                update_stimulus_display()
+                labjack_target_on = 0
+                labjack_cue_on    = 0
+            }
+
+            // Audio + visual feedback for choice/timeout errors
+            if (id_bad == 5 || id_bad == 6 || id_bad == 9) {
+                fix_green_static = 0
+                fix_blue_static  = 0
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(wrongDot)
+                update_stimulus_display()
+                labjack_cue_on = 1
+                action/play_sound(failure_sound)
+            }
+
+            // No visual feedback in main experiment (fMRI: avoid BOLD contamination)
+
+            start_timer (
+                timer          = timer_timeout
+                duration       = timeout
+                duration_units = ms
+            )
+            timer_expired (
+                target = 'End Trial'
+                timer  = timer_timeout
+            )
+        }
+
+        // ── End Trial ────────────────────────────────────────────────────────
+        state 'End Trial' {
+            tEnd     = now()
+            endTrial = endTrial + 1
+
+            fix_red_static   = 1
+            fix_green_static = 1
+            fix_blue_static  = 1
+
+            dot_alpha    = 1
+            reward_count = 0
+            elapsed_time = 0
+
+            dequeue_stimulus(photodiode)
+            dequeue_stimulus(target_window)
+            dequeue_stimulus(nontarget_window)
+            dequeue_stimulus(correctDot)
+            dequeue_stimulus(wrongDot)
+            dequeue_stimulus(monkey_face_1)
+            dequeue_stimulus(monkey_face_2)
+            dequeue_stimulus(monkey_face_3)
+            dequeue_stimulus(monkey_scrambled_1)
+            dequeue_stimulus(monkey_scrambled_2)
+            dequeue_stimulus(monkey_scrambled_3)
+            dequeue_stimulus(noise_mask_face)
+            dequeue_stimulus(noise_mask_scrambled)
+            dequeue_stimulus(fixCircleStatic)
+            update_stimulus_display()
+
+            id_bad        = 0
+            flag_response = 0
+            targetWait    = targetWait0
+
+            labjack_target_on = 0
+            labjack_fix_off   = 0
+            labjack_cue_on    = 0
+
+            goto (
+                target = 'Exit System'
+                when   = (CorrectTrials >= trialNum)
+            )
+            goto (
+                target = 'Exit System'
+                when   = (pstop)
+            )
+            goto ('ITI')
+        }
+
+        // ── Exit ─────────────────────────────────────────────────────────────
+        state 'Exit System' {
+            report('Session complete. CorrectTrials=$CorrectTrials')
+            yield()
+        }
+
+    } // end task Trials
+} // end protocol

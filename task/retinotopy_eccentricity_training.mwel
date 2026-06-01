@@ -1,0 +1,762 @@
+
+/*  
+Retinotopy Mapping — Eccentricity (Expanding/Contracting Ring)
+===============================================================
+Uses ring-shaped checkerboard stimuli with image scaling to sweep
+eccentricity. Two polarity images alternate for contrast reversal.
+
+Run structure:
+  1. Wait for TTL
+  2. Initial blank (10s) — scanner warmup + fixation stabilization
+  3. Continuous expansion/contraction for n_cycles × cycle_period seconds
+  4. Done (yields back to MWorks)
+
+Direction is set by the "direction" variable:
+  +1 = expanding  (fovea → periphery)
+  -1 = contracting (periphery → fovea)
+
+Scanning version:
+  - Fixed fixation hold duration (no staircase)
+  - Continuous run, no rest blocks
+  - Run separate expanding and contracting runs
+
+How scaling works:
+  Ring image has a fixed annular band (50%-69% of image radius).
+  MWorks scales the image from 2° to 48° over each cycle.
+  Logarithmic scaling → constant 10% duty cycle across eccentricity.
+
+Image files required in 'stimuli/' folder:
+  - ring_checkerboard_A.png  (polarity A)
+  - ring_checkerboard_B.png  (polarity B, contrast-inverted)
+*/
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' //'human'
+//%define human
+%define monkey
+
+// %define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+// var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+resource ('sounds')
+sound/wav_file success_sound ('sounds/success.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+// Data file
+///////////////////////////////////////////////////////////////////////////////
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file ('set_stimuli.py')
+
+// Filename structure:
+//   [date]/mworks/[timestamp]_retinotopy_ring_dir[+1 or -1].mwk2
+// Each run is uniquely identified by date, timestamp, task, and direction
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))_retinotopy_ring_dir${direction}")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Retinotopy Parameters  (EDIT THESE)
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'Retinotopy Parameters' {
+
+    // --- Direction ---
+    var direction = 1           // +1 = expanding (fovea → periphery)
+                                // -1 = contracting (periphery → fovea)
+
+    // --- Timing ---
+    var initial_blank = 10      // seconds of blank after TTL before stimulus starts
+    var cycle_period = 40       // seconds for one full sweep
+    var n_cycles = 8            // number of full sweeps
+
+    // Derived: do not edit directly
+    var run_duration = n_cycles * cycle_period   // seconds total (= 320)
+
+    // --- Ring scaling ---
+    var ring_size_min = 2.0     // display size when ring is at fovea (0.5°)
+    var ring_size_max = 48.0    // display size when ring is at periphery (12°)
+    var ring_scale_ratio = 24.0 // ring_size_max / ring_size_min
+
+    // --- Flicker ---
+    var flicker_freq = 4        // Hz (contrast reversal frequency)
+
+    // --- Background ---
+    var bg_color = 0.22         // background luminance (gray)
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Fixation & Reward Parameters
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'Fixation' {
+    var fixX = 0
+    var fixY = 0
+
+    var fix_sz = 0.5
+    var fix_win = 8
+
+    var fix_red_static = 1
+    var fix_green_static = 0
+    var fix_blue_static = 0
+    var fix_alpha = 1
+
+    var on_fix_static = 0
+
+    var fixWaitDur = 10000
+    var fixTimeDur = 1000       // fixed hold duration, no staircase
+
+    var early_HoldDur     = 100
+    var early_rewardDur   = 100
+    var reward_multiplier = 3
+    var holdDur_step      = 50
+    var holdDur_min       = 100
+    var holdDur_max       = 5000
+}
+
+group 'Reward' {
+    var reward_line = 0
+    var rewardDur = 300
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// State tracking variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'State' {
+    var t_stim_start = 0
+    var pstop = 0
+    // TTL is defined in hand_interfaces/keyboard
+
+    var localTrials = 0
+    var CorrectTrials = 0
+    var IncorrectTrials = 0
+    var startTrial = 0
+    var endTrial = 0
+    var id_bad = 0
+
+    var tStart = 0
+    var tFix = 0
+    var tRew = 0
+    var tEnd = 0
+    var tResponse = 0
+
+    var total_fix_ms  = 0      // accumulated fixated time during run (ms)
+    var fix_ratio     = 0.0    // fixated / elapsed
+    var elapsed_s     = 0.0
+}
+
+group 'Matlab' {
+    var sync = 0 (groups = Matlab)
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+resource ('stimuli')
+
+iodevice/stimulus_display (
+    background_color = bg_color, bg_color, bg_color
+)
+
+blank_screen background_screen (
+    color = bg_color, bg_color, bg_color
+)
+
+// --- Ring checkerboard polarity A ---
+// Size scales logarithmically to sweep eccentricity
+// frac = cycle fraction adjusted for direction
+// size = ring_size_min * pow(ring_scale_ratio, frac)
+
+frame_list ring_A_list (
+    stimulus_group = ring_A_group
+    loop = YES
+    autoplay = YES
+)
+
+stimulus_group ring_A_group {
+    image_file ring_A (
+        path = 'stimuli/ring_checkerboard_A.png'
+        x_size = ring_size_min * pow(ring_scale_ratio, 0.5 + direction * ((now() - t_stim_start) / 1e6 / cycle_period - floor((now() - t_stim_start) / 1e6 / cycle_period) - 0.5))
+        y_size = ring_size_min * pow(ring_scale_ratio, 0.5 + direction * ((now() - t_stim_start) / 1e6 / cycle_period - floor((now() - t_stim_start) / 1e6 / cycle_period) - 0.5))
+        x_position = 0
+        y_position = 0
+        rotation = 0
+        alpha_multiplier = 1 - (floor((now() - t_stim_start) / 1e6 * flicker_freq * 2) % 2)
+        deferred = NO
+    )
+}
+
+// --- Ring checkerboard polarity B ---
+frame_list ring_B_list (
+    stimulus_group = ring_B_group
+    loop = YES
+    autoplay = YES
+)
+
+stimulus_group ring_B_group {
+    image_file ring_B (
+        path = 'stimuli/ring_checkerboard_B.png'
+        x_size = ring_size_min * pow(ring_scale_ratio, 0.5 + direction * ((now() - t_stim_start) / 1e6 / cycle_period - floor((now() - t_stim_start) / 1e6 / cycle_period) - 0.5))
+        y_size = ring_size_min * pow(ring_scale_ratio, 0.5 + direction * ((now() - t_stim_start) / 1e6 / cycle_period - floor((now() - t_stim_start) / 1e6 / cycle_period) - 0.5))
+        x_position = 0
+        y_position = 0
+        rotation = 0
+        alpha_multiplier = (floor((now() - t_stim_start) / 1e6 * flicker_freq * 2) % 2)
+        deferred = NO
+    )
+}
+
+// --- Fixation point ---
+stimulus/fixation_point fixCircleStatic (
+    color = fix_red_static, fix_green_static, fix_blue_static
+    trigger_width = fix_win
+    trigger_watch_x = eye_x
+    trigger_watch_y = eye_y
+    trigger_flag = on_fix_static
+    x_size = fix_sz
+    y_size = fix_sz
+    x_position = fixX
+    y_position = fixY
+    rotation = 0
+    alpha_multiplier = fix_alpha
+)
+
+// --- Wait text ---
+stimulus/text wait_for_TTL (
+    text = 'WAIT FOR TTL ("S")'
+    font_name = "Helvetica Neue"
+    font_size = 64
+    color = 1, 1, 1
+    text_alignment = center
+    x_size = 15
+    y_size = 3
+    x_position = 0
+    y_position = -5
+    alpha_multiplier = 1
+)
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Helper macros
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define check_run_timeout ()
+    goto (
+        target = 'Run End'
+        when = pstop
+    )
+%end
+
+%define check_warmup_done ()
+    timer_expired (
+        target = 'Start Run'
+        timer = warmup_timer
+    )
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocol
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'Retinotopy_Eccentricity' {
+    start_device_io (eye_tracker)
+    start_device_io (hand)
+
+    queue_stimulus (background_screen)
+    update_stimulus_display ()
+
+    task RetinotopyTraining {
+
+        // ============================================================
+        // WAIT FOR SCANNER
+        // ============================================================
+
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+
+            total_fix_ms = 0
+            fix_ratio    = 0.0
+            elapsed_s    = 0.0
+
+            report ('=== Eccentricity: direction=$direction ===')
+            report ('=== $initial_blank s warmup, then $n_cycles cycles x $cycle_period s = $run_duration s ===')
+
+            queue_stimulus (wait_for_TTL)
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto (
+                target = 'Warmup'
+                when = TTL
+            )
+        }
+
+        // ============================================================
+        // WARMUP
+        // ============================================================
+
+        state 'Warmup' {
+            report ('=== Warmup started ===')
+            dequeue_stimulus (wait_for_TTL)
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+            fix_alpha = 1
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            start_timer (
+                timer = warmup_timer
+                duration = initial_blank * 1000
+                duration_units = ms
+            )
+            goto ('Warmup Fix On')
+        }
+
+        state 'Warmup Fix On' {
+            reward_line = false
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            goto (
+                target = 'Warmup Trial Start'
+                when = on_fix_static
+            )
+            timer_expired (
+                target = 'Warmup Fix On'
+                timer = fixWait
+            )
+        }
+
+        state 'Warmup Trial Start' {
+            start_timer (
+                timer = EarlyHold
+                duration = early_HoldDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            goto (
+                target = 'Warmup Fix On'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Warmup Early Reward'
+                timer = EarlyHold
+            )
+        }
+
+        state 'Warmup Early Reward' {
+            reward_line = true
+            start_timer (
+                timer = EarlyRew
+                duration = early_rewardDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            timer_expired (
+                target = 'Warmup Late Hold'
+                timer = EarlyRew
+            )
+        }
+
+        state 'Warmup Late Hold' {
+            reward_line = false
+            start_timer (
+                timer = LateHold
+                duration = fixTimeDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            goto (
+                target = 'Warmup Late Bad'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Warmup Late Reward'
+                timer = LateHold
+            )
+        }
+
+        state 'Warmup Late Reward' {
+            fix_red_static = 0
+            fix_green_static = 1
+            fix_blue_static = 0
+            update_stimulus_display ()
+
+            fixTimeDur = fixTimeDur + holdDur_step
+            if (fixTimeDur > holdDur_max) {
+                fixTimeDur = holdDur_max
+            }
+
+            CorrectTrials = CorrectTrials + 1
+            reward_line = true
+
+            start_timer (
+                timer = LateRew
+                duration = early_rewardDur * reward_multiplier
+                duration_units = ms
+            )
+            check_warmup_done ()
+            timer_expired (
+                target = 'Warmup Fix On'
+                timer = LateRew
+            )
+        }
+
+        state 'Warmup Late Bad' {
+            fix_red_static = 1
+            fix_green_static = 0
+            fix_blue_static = 0
+            update_stimulus_display ()
+
+            fixTimeDur = fixTimeDur - holdDur_step
+            if (fixTimeDur < holdDur_min) {
+                fixTimeDur = holdDur_min
+            }
+
+            start_timer (
+                timer = LateBadTimer
+                duration = 500
+                duration_units = ms
+            )
+            check_warmup_done ()
+            timer_expired (
+                target = 'Warmup Fix On'
+                timer = LateBadTimer
+            )
+        }
+
+        // ============================================================
+        // START STIMULUS
+        // ============================================================
+
+        state 'Start Run' {
+            report ('=== Stimulus started ===')
+
+            t_stim_start = now()
+
+            live_queue_stimulus (ring_A_list)
+            live_queue_stimulus (ring_B_list)
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto ('Fix On')
+        }
+
+        // ============================================================
+        // RUN ENDED -> DONE
+        // ============================================================
+
+        state 'Run End' {
+            report ('=== Run ended: $CorrectTrials correct / $localTrials trials ===')
+
+            dequeue_stimulus (ring_A_list)
+            dequeue_stimulus (ring_B_list)
+            dequeue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto ('Exit System')
+        }
+
+        // ============================================================
+        // FIXATION MONITORING
+        // ============================================================
+
+        state 'Fix On' {
+            sync = 0
+            sync = 1
+
+            fix_red_static = 1
+            fix_green_static = 0
+            fix_blue_static = 0
+            fix_alpha = 1
+
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur
+                duration_units = ms
+            )
+            check_run_timeout ()
+            goto (
+                target = 'Trial Start'
+                when = on_fix_static
+            )
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+            )
+        }
+
+        state 'Trial Start' {
+            localTrials = localTrials + 1
+            tFix = now()
+            id_bad = 1
+
+            start_timer (
+                timer = EarlyHold
+                duration = early_HoldDur
+                duration_units = ms
+            )
+            check_run_timeout ()
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Early Reward'
+                timer = EarlyHold
+            )
+        }
+
+        state 'Early Reward' {
+            reward_line = true
+            start_timer (
+                timer = EarlyRew
+                duration = early_rewardDur
+                duration_units = ms
+            )
+            check_run_timeout ()
+            timer_expired (
+                target = 'Late Hold'
+                timer = EarlyRew
+            )
+        }
+
+        state 'Late Hold' {
+            reward_line = false
+            start_timer (
+                timer = LateHold
+                duration = fixTimeDur
+                duration_units = ms
+            )
+            check_run_timeout ()
+            goto (
+                target = 'Late Bad'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Late Reward'
+                timer = LateHold
+            )
+        }
+
+        state 'Late Reward' {
+            report ('Late SUCCESS. fixTimeDur = $fixTimeDur')
+            fix_red_static = 0
+            fix_green_static = 1
+            fix_blue_static = 0
+            update_stimulus_display ()
+
+            fixTimeDur = fixTimeDur + holdDur_step
+            if (fixTimeDur > holdDur_max) {
+                fixTimeDur = holdDur_max
+            }
+
+            CorrectTrials = CorrectTrials + 1
+            total_fix_ms = total_fix_ms + early_HoldDur + fixTimeDur
+            tRew = now()
+            reward_line = true
+
+            start_timer (
+                timer = LateRew
+                duration = early_rewardDur * reward_multiplier
+                duration_units = ms
+            )
+            check_run_timeout ()
+            timer_expired (
+                target = 'End Trial'
+                timer = LateRew
+            )
+        }
+
+        state 'Late Bad' {
+            report ('Late FAILED. fixTimeDur = $fixTimeDur')
+            fix_red_static = 1
+            fix_green_static = 0
+            fix_blue_static = 0
+            update_stimulus_display ()
+
+            fixTimeDur = fixTimeDur - holdDur_step
+            if (fixTimeDur < holdDur_min) {
+                fixTimeDur = holdDur_min
+            }
+
+            start_timer (
+                timer = LateBadTimer
+                duration = 500
+                duration_units = ms
+            )
+            check_run_timeout ()
+            timer_expired (
+                target = 'End Trial'
+                timer = LateBadTimer
+            )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+            reward_line = false
+            endTrial = endTrial + 1
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+            fix_alpha = 1
+            id_bad = 0
+
+            elapsed_s = (now() - t_stim_start) / 1e6
+            if (elapsed_s > 0) {
+                fix_ratio = total_fix_ms / 1000.0 / elapsed_s
+            }
+            report ('Fix: $CorrectTrials rewards | $localTrials trials | Ratio: $fix_ratio | Elapsed: $elapsed_s s')
+
+            update_stimulus_display ()
+
+            check_run_timeout ()
+
+            goto (
+                target = 'Exit System'
+                when = pstop
+            )
+
+            goto ('Fix On')
+        }
+
+        // ============================================================
+        // FIXATION FAILURES
+        // ============================================================
+
+        state 'Failure to fixate' {
+            report ('No fixation acquired')
+
+            fix_alpha = 0
+            update_stimulus_display ()
+
+            start_timer (
+                timer = NoFixWait
+                duration = 500
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+            )
+        }
+
+        state 'Bad' {
+            report ('Fixation break: id_bad = $id_bad')
+            tResponse = now()
+
+            fix_alpha = 0
+            update_stimulus_display ()
+
+            start_timer (
+                timer = BadTimer
+                duration = 500
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            timer_expired (
+                target = 'End Trial'
+                timer = BadTimer
+            )
+        }
+
+        // ============================================================
+        // EXIT
+        // ============================================================
+
+        state 'Exit System' {
+            report ('=== Eccentricity mapping complete ===')
+            report ('Correct: $CorrectTrials / Local: $localTrials')
+
+            dequeue_stimulus (ring_A_list)
+            dequeue_stimulus (ring_B_list)
+            dequeue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            yield ()
+        }
+    }
+}

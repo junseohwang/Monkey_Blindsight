@@ -88,9 +88,16 @@ group 'Fixation+Pursuit' {
     var fixHz = 0.25 (groups = Fixation)
     var fixDynMag = 8 (groups = Fixation)
     var tStart = 0 (groups = Fixation)
-    var fix_pur_HoldDur = 700    (groups = Fixation)
+    var fix_pur_HoldDur = 500    (groups = Fixation)
     var fix_pur_ITI_Dur = 2000 (groups = Fixation)
     var fix_pur_timeoutDur = 500 (groups = Fixation)
+
+    var early_HoldDur     = 100   (groups = Fixation)  // short hold for early reward
+    var early_rewardDur   = 50   (groups = Fixation)  // small juice pulse
+    var reward_multiplier = 3     (groups = Fixation)  // late reward = early × this
+    var holdDur_step      = 50    (groups = Fixation)
+    var holdDur_min       = 100   (groups = Fixation)
+    var holdDur_max       = 2000  (groups = Fixation)
 }
 
 group Matlab {
@@ -203,7 +210,7 @@ protocol 'Manual+Pursuit' {
             update_stimulus_display ()
             start_timer (
                 timer = fixWait
-                duration = fixWaitDur // 10000
+                duration = fixWaitDur
                 duration_units = ms
                 )
             goto (
@@ -215,12 +222,13 @@ protocol 'Manual+Pursuit' {
                 timer = fixWait
                 )
         }
+
         state 'Trial Start' {
             report ('Fixation acquired.')
             startTrial = 1
             start_timer (
-                timer = HoldFix
-                duration = fix_pur_HoldDur // 2500
+                timer = EarlyHold
+                duration = early_HoldDur
                 duration_units = ms
                 )
             goto (
@@ -228,56 +236,152 @@ protocol 'Manual+Pursuit' {
                 when = !on_fix_dyn
                 )
             timer_expired (
-                target = Reward
-                timer = HoldFix
+                target = 'Early Reward'
+                timer = EarlyHold
                 )
         }
-        state Reward {
-            report ('Success!')
-            CorrectTrials = CorrectTrials+1
 
-action/play_sound(success_sound)
+        state 'Early Reward' {
+            reward_line = true
+            start_timer (
+                timer = EarlyRew
+                duration = early_rewardDur
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'Late Hold'
+                timer = EarlyRew
+                )
+        }
+
+        state 'Late Hold' {
+            reward_line = false
+            start_timer (
+                timer = LateHold
+                duration = fix_pur_HoldDur
+                duration_units = ms
+                )
+            goto (
+                target = 'Late Bad'
+                when = !on_fix_dyn
+                )
+            timer_expired (
+                target = 'Late Reward'
+                timer = LateHold
+                )
+        }
+
+        state 'Late Reward' {
+            report ('Late hold SUCCESS. HoldDur = $fix_pur_HoldDur')
             fix_red = 0
+            fix_green = 1
             fix_blue = 0
+            update_stimulus_display ()
 
+            fix_pur_HoldDur = fix_pur_HoldDur + holdDur_step
+            if (fix_pur_HoldDur > holdDur_max) {
+                fix_pur_HoldDur = holdDur_max
+            }
+
+            CorrectTrials = CorrectTrials + 1
+            action/play_sound(success_sound)
             reward_line = true
 
             start_timer (
-                timer = GreenTime
-                duration = rewardDur+bonusRewDur
+                timer = LateRew
+                duration = early_rewardDur * reward_multiplier
                 duration_units = ms
                 )
             timer_expired (
                 target = 'End Trial'
-                timer = GreenTime
+                timer = LateRew
                 )
         }
+
+        state 'Late Bad' {
+            report ('Late hold FAILED. HoldDur = $fix_pur_HoldDur')
+            fix_red = 1
+            fix_green = 0
+            fix_blue = 0
+            update_stimulus_display ()
+
+            fix_pur_HoldDur = fix_pur_HoldDur - holdDur_step
+            if (fix_pur_HoldDur < holdDur_min) {
+                fix_pur_HoldDur = holdDur_min
+            }
+
+            start_timer (
+                timer = LateBadTimer
+                duration = fix_pur_timeoutDur
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = LateBadTimer
+                )
+        }
+
         state 'End Trial' {
             report ('Ending Trial.')
             reward_line = false
             dequeue_stimulus (dynamicFix)
             update_stimulus_display ()
 
-            /*  1) horizon left/right for vertical center
-                2) horizon left/right for vertical upper
-                3) vertical up/down for horizontal center
-                4) vertical up/down for horizontal right
-                */
-
-            if (CorrectTrials%(2*nRep)==0){
-                pursuitTheta = 90 - pursuitTheta
-                fixX=0
-                fixY=0
-            }
-            if (CorrectTrials%(2*nRep)!=0){
-                if (CorrectTrials%nRep==0){
-                    if (pursuitTheta==0){ // horizontal -> move up
-                        fixY = fixDynMag // 8
-                        fixX = 0
+            if (fixDynMag == 0) {
+                if (CorrectTrials % 9 == 0) { 
+                    fixX = -8    
+                    fixY =  8 
                     }
-                    if (pursuitTheta==90){ // vertical -> mve right
-                        fixX = fixDynMag
-                        fixY = 8
+                if (CorrectTrials % 9 == 1) { 
+                    fixX =  0    
+                    fixY =  8 
+                    }
+                if (CorrectTrials % 9 == 2) { 
+                    fixX =  8    
+                    fixY =  8 
+                    }
+                if (CorrectTrials % 9 == 3) { 
+                    fixX = -8    
+                    fixY =  0 
+                    }
+                if (CorrectTrials % 9 == 4) { 
+                    fixX =  0    
+                    fixY =  0 
+                    }
+                if (CorrectTrials % 9 == 5) { 
+                    fixX =  8    
+                    fixY =  0 
+                    }
+                if (CorrectTrials % 9 == 6) { 
+                    fixX = -8    
+                    fixY = -8 
+                    }
+                if (CorrectTrials % 9 == 7) { 
+                    fixX =  0    
+                    fixY = -8 
+                    }
+                if (CorrectTrials % 9 == 8) { 
+                    fixX =  8    
+                    fixY = -8 
+                    }
+            }
+
+            if (fixDynMag != 0) {
+                if (CorrectTrials%(2*nRep)==0){
+                    pursuitTheta = 90 - pursuitTheta
+                    fixX=0
+                    fixY=0
+                }
+                if (CorrectTrials%(2*nRep)!=0){
+                    if (CorrectTrials%nRep==0){
+                        if (pursuitTheta==0){
+                            fixY = 0
+                            fixX = -8
+                        }
+                        if (pursuitTheta==90){
+                            fixX = 8
+                            fixY = 0
+                        }
                     }
                 }
             }

@@ -1,0 +1,745 @@
+/* 
+Monkey Blindsight
+
+Main Experiment
+
+
+*/
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' // 'human'
+//%define human
+%define monkey
+
+// %define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+// var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics // mouse?
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Set data file, pwd, and python_site_packages
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file('set_stimuli.py')
+
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+// These directories are copied to the machine running MWServer
+resource ('sounds')
+
+sound/wav_file success_sound ('sounds/success.wav')
+sound/wav_file failure_sound ('sounds/failure.wav')
+sound/wav_file pong_sound ('sounds/pong.wav')
+sound/wav_file start_sound ('sounds/start.wav')
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/variables'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/stimuli'
+
+///////////////////////////////////////////////////////////////////////////////
+// ACTIONS
+///////////////////////////////////////////////////////////////////////////////
+
+%include 'stimuli/actions'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// subfunctions
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define sample_2afc_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    targetTimeDur = 150 // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
+    // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
+    
+    // Randomly determines the correct target side
+    stim_id = disc_rand(0, 1)        // 1 for left-correct, 0 for right-correct
+
+    // Set target positions based on eccentricity in degrees of visual angle.
+    // If stim_id = 1 (left), targetX becomes negative.
+    // If stim_id = 0 (right), targetX becomes positive.
+    targetX = (1 - 2 * stim_id) * target_eccentricity
+    targetY = 0
+    targetSX = -targetX
+    targetSY = 0
+%end
+
+%define sample_yn_trial ()
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
+    // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
+
+    // Randomly determines the correct target side
+    stim_id = disc_rand(0, 1)        // 1 for left-correct, 0 for right-correct
+    // Randomly determine the occluded side
+    target_id = disc_rand(0, 1)      // 1 for left-occluded, 0 for right-occluded
+
+    if (stim_id == 1) { 
+        targetX = -target_eccentricity // Correct response for "Face" is "Yes" (Left)
+        targetSX = target_eccentricity
+    } 
+    if (stim_id == 0) {
+        targetX = target_eccentricity  // Correct response for "Scrambled" is "No" (Right)
+        targetSX = -target_eccentricity
+    }
+    targetY = 0
+    targetSY = 0
+%end
+
+%define update_staircase_success ()
+    // Only update staircase during 2AFC trials
+    if (staircase_enabled == 1 && task_mode == 1) {
+        consecutive_corrects = consecutive_corrects + 1
+        
+        // 3-Down Rule: 3 corrects in a row -> make it harder
+        if (consecutive_corrects == 3) {
+            
+            // Reversal Check
+            if (previous_direction == 1) { 
+                current_step_size = current_step_size * 0.5 
+            }
+            
+            if (current_step_size < min_step_size) {
+                current_step_size = min_step_size
+            }
+            
+            // Apply contrast drop
+            current_contrast = current_contrast - current_step_size
+            if (current_contrast < 0.0) { 
+                current_contrast = 0.0 
+                }
+            
+            previous_direction = -1
+            consecutive_corrects = 0
+            report('STAIRCASE DOWN (Harder): Contrast = $current_contrast, Step = $current_step_size')
+        }
+    }
+%end
+
+%define update_staircase_failure ()
+    // Only update staircase during 2AFC trials
+    if (staircase_enabled == 1 && task_mode == 1) {
+        // 1-Up Rule: 1 error -> immediately make it easier
+        
+        // Reversal Check
+        if (previous_direction == -1) { 
+            current_step_size = current_step_size * 0.5 
+        }
+        
+        if (current_step_size < min_step_size) {
+            current_step_size = min_step_size
+        }
+        
+        // Apply contrast boost
+        current_contrast = current_contrast + current_step_size
+        if (current_contrast > 1.0) { 
+            current_contrast = 1.0 
+            }
+        
+        previous_direction = 1
+        consecutive_corrects = 0
+        report('STAIRCASE UP (Easier): Contrast = $current_contrast, Step = $current_step_size')
+    }
+%end
+
+%define update_performance_metrics (outcome)
+    // --- 1. GLOBAL TRACKING (Kept for internal counters, but not printed) ---
+    session_valid_trials = session_valid_trials + 1
+    
+    if (outcome == 1) {
+        session_correct_count = session_correct_count + 1
+        if (stim_id == 1) { 
+            session_left_choices = session_left_choices + 1 
+            }
+    }
+    if (outcome == 0) {
+        if (stim_id == 0) { 
+            session_left_choices = session_left_choices + 1 
+            }
+    }
+
+    if (session_valid_trials > 0) {
+        session_accuracy = round((session_correct_count / session_valid_trials) * 1000) / 10.0
+        session_bias = round((session_left_choices / session_valid_trials) * 1000) / 10.0
+    }
+
+    // --- 2. 2AFC TRACKING & REPORTING ---
+    if (task_mode == 1) {
+        session_valid_trials_2afc = session_valid_trials_2afc + 1
+        
+        if (outcome == 1) {
+            session_correct_count_2afc = session_correct_count_2afc + 1
+            if (stim_id == 1) { 
+                session_left_choices_2afc = session_left_choices_2afc + 1 
+                }
+        }
+        if (outcome == 0) {
+            if (stim_id == 0) { 
+                session_left_choices_2afc = session_left_choices_2afc + 1 
+                }
+        }
+
+        if (session_valid_trials_2afc > 0) {
+            session_accuracy_2afc = round((session_correct_count_2afc / session_valid_trials_2afc) * 1000) / 10.0
+            session_bias_2afc = round((session_left_choices_2afc / session_valid_trials_2afc) * 1000) / 10.0
+        }
+        
+        // Print ONLY 2AFC stats
+        report('2AFC -> Acc: $session_accuracy_2afc % | Left Bias: $session_bias_2afc % (Trials: $session_valid_trials_2afc)')
+    }
+
+    // --- 3. YN TRACKING & REPORTING ---
+    if (task_mode == 0) {
+        session_valid_trials_yn = session_valid_trials_yn + 1
+        
+        if (outcome == 1) {
+            session_correct_count_yn = session_correct_count_yn + 1
+            if (stim_id == 1) { 
+                session_left_choices_yn = session_left_choices_yn + 1 
+                }
+        }
+        if (outcome == 0) {
+            if (stim_id == 0) { 
+                session_left_choices_yn = session_left_choices_yn + 1 
+                }
+        }
+
+        if (session_valid_trials_yn > 0) {
+            session_accuracy_yn = round((session_correct_count_yn / session_valid_trials_yn) * 1000) / 10.0
+            session_bias_yn = round((session_left_choices_yn / session_valid_trials_yn) * 1000) / 10.0
+        }
+        
+        // Print ONLY YN stats
+        report('YN   -> Acc: $session_accuracy_yn % | Left Bias: $session_bias_yn % (Trials: $session_valid_trials_yn)')
+    }
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+// Protocols
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'Main_Experiment' {
+    start_device_io (eye_tracker)
+
+    %ifdef monkey_ephys
+        start_io_device (labjack)
+    %end
+
+    update_stimulus_display ()
+        task Trials {
+            state 'Initial' {
+                // --- General Trial Counters ---
+                localTrials = 0
+                CorrectTrials = 0
+                IncorrectTrials = 0
+                correction_needed = 0
+                
+                // --- Task Block Control ---
+                task_mode = 1 // Start with 2AFC
+                block_start_time = now()
+                
+                // --- Global Tracking Reset ---
+                session_valid_trials = 0
+                session_correct_count = 0
+                session_left_choices = 0
+                session_accuracy = 0.0
+                session_bias = 0.0
+                
+                // --- 2AFC Tracking Reset ---
+                session_valid_trials_2afc = 0
+                session_correct_count_2afc = 0
+                session_left_choices_2afc = 0
+                session_accuracy_2afc = 0.0
+                session_bias_2afc = 0.0 
+
+                // --- YN Tracking Reset ---
+                session_valid_trials_yn = 0
+                session_correct_count_yn = 0
+                session_left_choices_yn = 0
+                session_accuracy_yn = 0.0
+                session_bias_yn = 0.0 
+                
+                // --- Staircase Reset ---
+                current_contrast = 1.0
+                consecutive_corrects = 0
+                current_step_size = 0.1
+                previous_direction = 0
+
+                goto ('ITI')
+            }
+
+            state 'ITI' {
+                // 30-second graceful alternation check
+                if ( (now() - block_start_time)/1e6 >= block_duration ) {
+                    task_mode = 1 - task_mode           // toggle 1↔0
+                    block_start_time = now()
+
+                    if (task_mode == 1) { 
+                        report("BLOCK SWITCH: Now 2AFC") 
+                        }
+                    if (task_mode == 0) { 
+                        report("BLOCK SWITCH: Now YN") 
+                        }
+                }
+
+                // Normal Path: Set up trial if no correction needed
+                if (correction_needed == 0 || correction_enabled == 0) {
+                    if (task_mode == 1) {
+                        sample_2afc_trial()
+                    }
+                    if (task_mode == 0) {
+                        sample_yn_trial()
+                    }
+                }
+
+                // Correction Path
+                if (correction_needed == 1 && correction_enabled == 1) {
+                    report("CORRECTION TRIAL: Repeating previous configuration (StimID: $stim_id)")
+                }
+
+                wait(ITI*1000)
+                goto ('Fix On')
+            }
+
+            state 'Fix On' {
+                live_queue_stimulus(fixCircleStatic)
+                update_stimulus_display ()
+
+                tStart = now()
+                startTrial = 1
+                id_bad = 0
+                report ('Fix on')
+
+                start_timer (
+                    timer = fixWait 
+                    duration = fixWaitDur
+                    duration_units = ms
+                    )
+
+                goto (
+                    target = 'Static Fix'
+                    when   = on_fix_static 
+                    )
+
+                timer_expired (
+                    target = 'Failure to fixate' 
+                    timer = fixWait
+                    )
+            }
+
+            state 'Static Fix' {
+                localTrials = localTrials+1
+                tFix = now()
+                id_bad = 1
+
+                start_timer (
+                    timer = StaticFixWait
+                    duration = fixTimeDur 
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'Target On'
+                    timer = StaticFixWait
+                    )
+            }
+            
+            state 'Target On' {
+                %ifdef monkey_ephys
+                    queue_stimulus(photodiode)
+                %end
+
+                if (task_mode == 1) { 
+                    queue_stimulus(monkey_face)
+                    queue_stimulus(monkey_scrambled)
+                }
+                
+                if (task_mode == 0) { 
+                    queue_stimulus(monkey_face) 
+                    queue_stimulus(monkey_scrambled) 
+                    
+                    if (target_id == 1) { 
+                        queue_stimulus(occluder_left) 
+                        }
+                    if (target_id == 0) { 
+                        queue_stimulus(occluder_right) 
+                        }
+                }
+                
+                update_stimulus_display ()
+                id_bad = 2
+
+                start_timer (
+                    timer = timer_target_on
+                    duration = targetTimeDur
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'Noise Mask'
+                    timer  = timer_target_on
+                )
+            }
+
+            state 'Noise Mask' {
+                id_bad = 3
+
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                
+                queue_stimulus(noise_mask_fullscreen)
+                live_queue_stimulus(fixCircleStatic)
+
+                update_stimulus_display()
+
+                start_timer (
+                    timer = timer_mask_on
+                    duration = maskTimeDur
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Bad'
+                    when = !on_fix_static
+                    )
+                timer_expired (
+                    target = 'Fix Off'
+                    timer = timer_mask_on
+                    )
+            }
+            
+            state 'Fix Off' {
+                id_bad = 5
+
+                dequeue_stimulus(noise_mask_fullscreen)
+                dequeue_stimulus(fixCircleStatic)
+
+                update_stimulus_display ()
+                tFixOff= now()
+                labjack_fix_off=1
+
+                live_queue_stimulus(target_window)
+                live_queue_stimulus(nontarget_window)
+                live_queue_stimulus(correctDot)
+                live_queue_stimulus(wrongDot)
+                update_stimulus_display ()
+
+                goto (
+                    target = 'Response'
+                    )
+            }
+
+            state 'Response'{
+                id_bad = 6
+
+                start_timer (
+                    timer = timer_response
+                    duration = targetWait 
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'post_response'
+                    when = on_target
+                    )
+                goto (
+                    target = 'Bad'
+                    when = on_nontarget
+                    )
+                timer_expired (
+                    target = 'Timeout_Router'
+                    timer = timer_response
+                    )
+            }
+
+            state 'Timeout_Router' {
+                id_bad = 9
+                goto ('Bad') 
+            }
+
+            state 'post_response' {
+                id_bad = 7
+                tResponse= now()
+
+                start_timer (
+                    timer = timer_post_response
+                    duration = responseRegister 
+                    duration_units = ms
+                    )
+                goto (
+                    target = 'Response' 
+                    when = !on_target
+                    )
+                timer_expired (
+                    target = 'Reward'
+                    timer = timer_post_response
+                    )
+            }
+
+            state 'Reward' {
+                correction_needed = 0 
+
+                fix_red_static = 0
+                fix_blue_static = 0
+                labjack_target_on = 0
+
+                dequeue_stimulus(wrongDot)
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(nontarget_window)
+                dequeue_stimulus(noise_mask_fullscreen)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+
+                // Optional reinforcement visual
+                queue_stimulus(monkey_face)
+                update_stimulus_display ()
+
+                update_performance_metrics(1)
+                update_staircase_success()
+
+                action/play_sound(success_sound)
+
+                tRew = now()
+
+                %ifdef monkey_ephys
+                    queue_stimulus(photodiode)
+                    update_stimulus_display ()
+                %end
+
+                CorrectTrials = CorrectTrials+1
+
+                pulse ( 
+                    variable = reward_line
+                    duration = rewardDur*1000
+                    )
+
+                start_timer (
+                    timer = GreenTime
+                    duration = rewardDur 
+                    duration_units = ms
+                    )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = GreenTime
+                    )
+            }
+
+            state 'Failure to fixate' {
+                tResponse= now()
+
+                start_timer (
+                    timer = NoFixWait
+                    duration = NoFixWaitDur 
+                    duration_units = ms
+                    )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = NoFixWait
+                    )
+            }
+            
+            state 'Bad' {
+                tResponse= now()
+
+                // 1. CHOICE ERROR LOGIC 
+                if (id_bad == 6 || id_bad == 9) {
+                    if (correction_enabled == 1) {
+                        correction_needed = 1
+                    }
+                    update_performance_metrics(0)
+                    update_staircase_failure() 
+                }
+                
+                // 2. FIXATION ERROR LOGIC 
+                if (id_bad < 6 || id_bad == 8) {
+                    correction_needed = 0
+                }
+
+                // 3. CLEANUP 
+                if (id_bad <= 4 || id_bad == 8 || id_bad == 2 || id_bad == 3) {
+                    index=0
+                    while (index<number){
+                        dequeue_stimulus(dots[index])
+                        index=index+1
+                    }
+                    dequeue_stimulus(monkey_face)
+                    dequeue_stimulus(monkey_scrambled)
+                    dequeue_stimulus(occluder_left)
+                    dequeue_stimulus(occluder_right)
+                    dequeue_stimulus(noise_mask_fullscreen)
+                    dequeue_stimulus(target_window)
+                    dequeue_stimulus(nontarget_window)
+                    dequeue_stimulus(fixCircleStatic)
+                    update_stimulus_display ()
+                    labjack_target_on = 0
+                    labjack_cue_on = 0
+                }
+
+                // 4. FEEDBACK (Sound and Visuals)
+                if (id_bad==5 || id_bad==6 || id_bad==9){
+                    fix_green_static = 0
+                    fix_blue_static = 0
+                    dequeue_stimulus(correctDot)
+                    dequeue_stimulus(wrongDot)
+                    update_stimulus_display ()
+                    labjack_cue_on = 1
+                    action/play_sound(failure_sound)
+                }
+
+                // Visual Feedback for Choice Errors (Preserved)
+                if (id_bad == 6) {
+                    queue_stimulus(monkey_scrambled)
+                    update_stimulus_display ()
+                    timeout = 1000
+                }
+
+                if (id_bad == 9) {
+                    queue_stimulus(monkey_face)
+                    queue_stimulus(monkey_scrambled)
+                    update_stimulus_display ()
+                    timeout = 1000
+                }
+                
+                // 5. TIMEOUT TIMER 
+                start_timer (
+                    timer = timer_timeout
+                    duration = timeout
+                    duration_units = ms
+                )
+                timer_expired (
+                    target = 'End Trial'
+                    timer = timer_timeout
+                )
+            }
+
+            state 'End Trial' {
+                tEnd = now()
+                endTrial = endTrial+1
+
+                object_red=1 
+                object_green=0.5
+                object_blue=0 
+                object_alpha = 1 
+
+                elapsed_time = 0
+                elapsed_time2 = 0 
+
+                fix_red_static = 1
+                fix_green_static = 1
+                fix_blue_static = 1
+
+                dot_alpha = 1
+                error_line_green = 1
+                error_line_blue = 1
+
+                reward_count=0
+
+                dequeue_stimulus(photodiode)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(nontarget_window)
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(wrongDot)
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                dequeue_stimulus(noise_mask_fullscreen)
+                dequeue_stimulus(fixCircleStatic)
+                update_stimulus_display()
+                
+                id_bad = 0
+                flag_response=0
+                targetWait=targetWait0
+
+                labjack_target_on = 0
+                labjack_fix_off = 0
+                labjack_cue_on = 0
+
+                goto (
+                    target = 'Exit System'
+                    when = CorrectTrials >= trialNum
+                    )
+                goto (
+                    target = 'Exit System'
+                    when = pstop
+                    )
+                goto (ITI)
+            }
+            
+            state 'Exit System' {
+                report ('Leaving state system')
+                yield ()
+            }
+        } // End of Task 'Trials'
+}

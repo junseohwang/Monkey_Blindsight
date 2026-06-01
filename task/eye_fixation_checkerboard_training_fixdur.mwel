@@ -6,14 +6,9 @@ Eye fixation task_stairver
     24.04.05 - add stair case by SA
     24.08.19 - fixation with rotating checkerboard wedge
     24.09 - add 24*6s rotation and then 60s rest 
-    24.10.8 - add consecutive_correct_trials is inceasing, fixTimeDurMean is decreasing & rewardDur is increasing. 
+    24.10.8 - add consecutive_correct_trials is inceasing, fixTimeDurMean is decreasing (with downdur)
     
-    for training, set run_duration = 3600 (1hr)
-    for actual fMRI session, set as follows
-        -  run_duration = 24*6 (for training 3600s/1hr)
-        -  NoFixWaitDur=0 (so that animals can get back to task right away)
-        -  timeout=0 (so that animals can get back to task right away)
-
+    for training, set run_duration = 24*6, and it will go to state 'timeout' and rest for out_duration
    */
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -22,16 +17,16 @@ Eye fixation task_stairver
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-var subject = 'monkey' // 'monkey' // 'human'
-%define human
-// %define monkey
+var subject = 'monkey' //'human'
+//%define human
+%define monkey
 
-// % define laptop
-// % define psychophysics
-% define monkey_train
+//%define laptop
+// %define psychophysics
+%define monkey_train
 // %define monkey_ephys // labjack photodiode
 
-// var platform = 'laptop' // mouse keyboard
+//var platform = 'laptop' // mouse keyboard
 // var platform = 'psychophysics' // human
 var platform = 'monkey_train' // eyelink keyboard
 // var platform = 'monkey_ephys'
@@ -91,10 +86,7 @@ sound/wav_file start_sound ('sounds/start.wav')
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-%include 'stimuli/variables'
-group Fixation {
-    var fix_theta = 0 (groups = Fixation)
-}
+%include 'stimuli/new_variables'
 
 group Matlab {
     var sync = 0 (groups = Matlab)
@@ -104,19 +96,16 @@ group Matlab {
         )
 }
 
+NoFixWaitDur=0
+bad_timeout = 0
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Stimuli
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-%include 'stimuli/stimuli'
-
-///////////////////////////////////////////////////////////////////////////////
-// ACTIONS
-///////////////////////////////////////////////////////////////////////////////
-
-%include 'stimuli/actions'
+%include 'stimuli/new_stimuli'
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -201,7 +190,7 @@ protocol 'EyeFixation' {
 
             start_timer (
                 timer = timer_timeout
-                duration = timeout * 1000 // second 
+                duration = out_duration * 1000 // second 
                 duration_units = ms
                 )
             timer_expired (
@@ -224,8 +213,8 @@ protocol 'EyeFixation' {
             fix_blue_static = 0
 
             live_queue_stimulus(fixCircleStatic)
-
             update_stimulus_display ()
+            
             tStart = now()
             startTrial = 1
             id_bad = 0
@@ -236,6 +225,10 @@ protocol 'EyeFixation' {
                 duration_units = ms
                 )
             goto (
+                target = 'timeout'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )                
+            goto (
                 target = 'Static Fix'
                 when = on_fix_static
                 )
@@ -244,10 +237,6 @@ protocol 'EyeFixation' {
                 timer = fixWait
                 )
 
-            goto (
-                target = 'timeout'
-                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
-                )
         }
 
         state 'Static Fix' {
@@ -269,6 +258,10 @@ protocol 'EyeFixation' {
                 duration_units = ms
             )
             goto (
+                target = 'timeout'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+            goto (
                 target = 'Bad'
                 when = !on_fix_static
             )
@@ -276,10 +269,6 @@ protocol 'EyeFixation' {
                 target = 'Reward' // pass
                 timer = StaticFixWait
             )
-            goto (
-                target = 'timeout'
-                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
-                )
         }
 
         state 'Reward' {
@@ -297,23 +286,20 @@ protocol 'EyeFixation' {
             consecutive_bad_trials = 0
             fixTimeDur = fixTimeDurInit - (consecutive_correct_trials * downdur) 
 
-            rewardDur = rewardDurMin + (rewardBonus*consecutive_correct_trials)
-            if (rewardDurMax <= rewardDur) {
-                    rewardDur = rewardDurMax
-                }
+            rewardDur = rewardDur
 
             start_timer (
                 timer = GreenTime
                 duration = rewardDur // 200
                 duration_units = ms
                 )
-            timer_expired (
-                target = 'End Trial'
-                timer = GreenTime
-                )
             goto (
                 target = 'timeout'
                 when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )
+            timer_expired (
+                target = 'End Trial'
+                timer = GreenTime
                 )
         }
 
@@ -338,11 +324,6 @@ protocol 'EyeFixation' {
             goto (
                 target = 'timeout'
                 when = ((now() - t_checkerboard_on) / 1e6) > run_duration
-                )
-
-            goto (
-                target = 'Exit System'
-                when = CorrectTrials >= trialNum
                 )
             goto (
                 target = 'Exit System'
@@ -373,14 +354,19 @@ protocol 'EyeFixation' {
             fix_blue_static = 0
             */
             update_stimulus_display ()
-
+            consecutive_bad_trials = consecutive_bad_trials + 1
             consecutive_correct_trials = 0
             tResponse= now()
             fixTimeDur = fixTimeDur // for MATLAB
+
             start_timer (
                 timer = NoFixWait
                 duration = NoFixWaitDur  // 2000
                 duration_units = ms
+                )
+            goto (
+                target = 'timeout'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
                 )
             timer_expired (
                 target = 'End Trial'
@@ -405,15 +391,19 @@ protocol 'EyeFixation' {
                 fix_green_static = 0
                 fix_blue_static = 0
                 */
+                dequeue_stimulus(fixCircleStatic)
                 update_stimulus_display ()
-
             }
 
             start_timer (
                 timer = timer_timeout
-                duration = timeout // 2000
+                duration = bad_timeout // 2000
                 duration_units = ms
                 )
+            goto (
+                target = 'timeout'
+                when = ((now() - t_checkerboard_on) / 1e6) > run_duration
+                )                
             timer_expired (
                 target = 'End Trial'
                 timer = timer_timeout

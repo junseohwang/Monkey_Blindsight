@@ -1,6 +1,6 @@
 firmata firmata ( // arduino_uno
     autostart = true
-    serial_port = '/dev/cu.usbmodem2401'
+    serial_port = '/dev/cu.usbmodem2301'
     data_interval = 1ms // for analog input
     reconnect_interval = 1s
     ) {

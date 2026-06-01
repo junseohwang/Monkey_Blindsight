@@ -110,8 +110,8 @@ sound/wav_file start_sound ('sounds/start.wav')
 ///////////////////////////////////////////////////////////////////////////////
 
 %define sample_2afc_trial ()
-    // fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
-    // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    targetTimeDur = 150 // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
     // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
     
     // Randomly determines the correct target side
@@ -127,7 +127,7 @@ sound/wav_file start_sound ('sounds/start.wav')
 %end
 
 %define sample_yn_trial ()
-    // fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
+    fixTimeDur = -fixTimeDurMean * logn(rand(0,1)) + fixTimeDurMin
     // targetTimeDur = -targetTimeDurMean * logn(rand(0,1)) + targetTimeDurMin
     // maskTimeDur = -maskTimeDurMean * logn(rand(0,1)) + maskTimeDurMin
 
@@ -146,6 +146,71 @@ sound/wav_file start_sound ('sounds/start.wav')
     }
     targetY = 0
     targetSY = 0
+%end
+
+%define update_contrast_success ()
+    // If training Stage 2 (Suppression) OR Stage 4 (Choice)
+    if (training_stage == 2 || training_stage == 4) {
+        // Logarithmic Increase: Make occluder more vivid (harder)
+        occluder_alpha = occluder_alpha * contrast_step
+        if (occluder_alpha > contrast_max) { 
+            occluder_alpha = contrast_max 
+            }
+        
+        report('STAIRCASE UP: Occluder Alpha = $occluder_alpha')
+    }
+%end
+
+%define update_contrast_failure ()
+    if (training_stage == 2 || training_stage == 4) {
+        // Logarithmic Decrease: Make occluder fade (easier)
+        occluder_alpha = occluder_alpha / contrast_step
+        if (occluder_alpha < contrast_min) { 
+            occluder_alpha = contrast_min 
+            }
+
+        report('STAIRCASE DOWN: Occluder Alpha = $occluder_alpha')
+    }
+%end
+
+%define update_performance_metrics (outcome)
+    // outcome: 1 for correct, 0 for incorrect (choice error)
+    
+    session_valid_trials = session_valid_trials + 1
+    
+    // --- TRACK ACCURACY ---
+    if (outcome == 1) {
+        session_correct_count = session_correct_count + 1
+    }
+
+    // --- TRACK BIAS (Determine Choice Side) ---
+    // If Correct (1) AND Stim=Left (1) -> Monkey Chose Left
+    // If Wrong (0)   AND Stim=Right (0) -> Monkey Chose Left
+    
+    if (outcome == 1) {
+        if (stim_id == 1) { 
+            session_left_choices = session_left_choices + 1 
+        }
+        // If stim_id == 0, they chose Right (do nothing to left count)
+    }
+    
+    if (outcome == 0) {
+        if (stim_id == 0) {
+            // Target was Right, but they got it wrong, so they chose Left
+            session_left_choices = session_left_choices + 1 
+        }
+        // If stim_id == 1 (Left), and they got it wrong, they chose Right
+    }
+
+    // --- CALCULATE PERCENTAGES ---
+    if (session_valid_trials > 0) {
+        session_accuracy = (session_correct_count / session_valid_trials) * 100
+        session_bias = (session_left_choices / session_valid_trials) * 100
+    }
+
+    report('=== PERFORMANCE ===')
+    report('Accuracy: $session_accuracy %')
+    report('Left Bias: $session_bias % (Counts: Left=$session_left_choices / Total=$session_valid_trials)')
 %end
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -186,14 +251,21 @@ protocol 'Face_YN_2AFC' {
                         report("BLOCK SWITCH: Now YN") 
                         }
                 }
-    
-                // Call the correct setup macro based on the current task mode
-                if (task_mode == 1) { // 1 = 2AFC
-                    sample_2afc_trial()
-                } 
-                if (task_mode == 0) { // 0 = YN
+                // Force task_mode to 0 for YN training
+                task_mode = 0 
+
+                // 3. Normal Path: Randomize if NO correction is needed OR if correction is disabled
+                // This ensures if you turn correction_enabled OFF, it always randomizes.
+                if (correction_needed == 0 || correction_enabled == 0) {
                     sample_yn_trial()
                 }
+
+                // 4. Correction Path: Repeat previous if correction IS enabled AND needed
+                if (correction_needed == 1 && correction_enabled == 1) {
+                    report("CORRECTION TRIAL: Repeating previous configuration (StimID: $stim_id)")
+                    // We DO NOT call sample_yn_trial() here, so stim_id and target_id persist.
+                }
+
                 wait(ITI*1000)
                 goto ('Fix On')
             }
@@ -206,21 +278,26 @@ protocol 'Face_YN_2AFC' {
                 tStart = now()
                 startTrial = 1
                 id_bad = 0
+                report ('Fix on')
 
                 start_timer (
                     timer = fixWait 
                     duration = fixWaitDur
                     duration_units = ms
                     )
+
+                // --- STAGE 0 LOGIC: Immediate Reward ---
                 goto (
                     target = 'Reward'
                     when   = (on_fix_static && (training_stage == 0))
-                )
-                // Normal path (hold or full task): proceed to Static Fix
+                    )
+
+                // --- ALL OTHER STAGES: Go to Hold ---
                 goto (
                     target = 'Static Fix'
-                    when   = (on_fix_static && (training_stage != 0))
-                )
+                    when   = (on_fix_static && (training_stage > 0))
+                    )
+
                 timer_expired (
                     target = 'Failure to fixate' 
                     timer = fixWait
@@ -230,6 +307,7 @@ protocol 'Face_YN_2AFC' {
             state 'Static Fix' {
                 report ('localTrials = $localTrials')
                 localTrials = localTrials+1
+                report ('Static Fix')
 
                 tFix = now()
                 id_bad = 1
@@ -244,21 +322,21 @@ protocol 'Face_YN_2AFC' {
                     when = !on_fix_static
                     )
                 timer_expired (
-                    target = 'After Hold'
+                    target = 'After Hold Router'
                     timer = StaticFixWait
                     )
             }
 
-            state 'After Hold' {
-                // If hold-only training, pay out right away
+            state 'After Hold Router' {
+                // STAGE 1: 고정 유지만 보상
                 goto ( 
-                    target = 'Reward'   
-                    when = (training_stage == 2) 
+                    target = 'Reward'    
+                    when = (training_stage == 1) 
                     )
-                // Otherwise (full task), go show the face/scramble
+                // STAGE 2+: 자극 제시로 진행
                 goto ( 
                     target = 'Target On' 
-                    when = (training_stage != 2) 
+                    when = (training_stage >= 2) 
                     )
             }
             
@@ -289,6 +367,7 @@ protocol 'Face_YN_2AFC' {
                         queue_stimulus(occluder_right) 
                         }
                 }
+                report ('Stimulus Display')
                 
                 update_stimulus_display ()
                 id_bad = 2
@@ -302,24 +381,11 @@ protocol 'Face_YN_2AFC' {
                     target = 'Bad'
                     when = !on_fix_static
                     )
+                // Timer Expired: Move to Mask (Used for both Stage 2 and 3)
                 timer_expired (
-                    target = 'Post Target Router'
+                    target = 'Noise Mask'
                     timer  = timer_target_on
                 )
-            }
-
-            state 'Post Target Router' {
-                // Stage 3 training: keep stimulus up and go straight to choice
-                goto ( 
-                    target = 'Fix Off' 
-                    when = (training_stage == 3 && task_mode == 1) 
-                    )
-
-                // Otherwise, run your normal pipeline (mask and then choice)
-                goto ( 
-                    target = 'Noise Mask' 
-                    when = (training_stage != 3 || task_mode != 1) 
-                    )
             }
 
             state 'Noise Mask' {
@@ -333,6 +399,8 @@ protocol 'Face_YN_2AFC' {
                 queue_stimulus(noise_mask_fullscreen)
                 live_queue_stimulus(fixCircleStatic)
 
+                report ('Mask Display')
+
                 update_stimulus_display()
 
                 start_timer (
@@ -344,48 +412,57 @@ protocol 'Face_YN_2AFC' {
                     target = 'Bad'
                     when = !on_fix_static
                     )
+                // Timer Expired: Decide Next Step based on Stage
                 timer_expired (
-                    target = 'Post Stimulus Router'
+                    target = 'Post Mask Router'
                     timer = timer_mask_on
                     )
             }
 
-            state 'Post Stimulus Router' {
-                // Training Stage 2: pay out for holding fixation through stim+mask
+            state 'Post Mask Router' {
                 goto ( 
                     target = 'Reward' 
-                    when = (training_stage == 2)
+                    when = (training_stage == 2) 
                     )
 
-                // Full task: proceed to choice phase
                 goto ( 
-                    target = 'Fix Off'
-                    when = (training_stage != 2) 
-                    )
+                    target = 'Fix Off' 
+                    when = (training_stage >= 3) 
+                    )           
             }
             
             state 'Fix Off' {
                 id_bad = 5
 
+                // Remove Mask, Remove Fixation
                 dequeue_stimulus(noise_mask_fullscreen)
-
-                live_queue_stimulus(target_window)
-                live_queue_stimulus(nontarget_window)
-                if (training_stage == 3) {
-                    dot_alpha = 0.1
-                }
-                live_queue_stimulus(correctDot)
-                live_queue_stimulus(wrongDot)
-
                 dequeue_stimulus(fixCircleStatic)
+
+                report ('Fixation Off')
+
+                // Update display to clear the fixation point immediately
                 update_stimulus_display ()
-
                 tFixOff= now()
-
                 labjack_fix_off=1
+
+                // Queue Targets/Dots
+                if (training_stage >= 4) {
+                    live_queue_stimulus(target_window)
+                    live_queue_stimulus(nontarget_window)
+                    live_queue_stimulus(correctDot)
+                    live_queue_stimulus(wrongDot)
+
+                    update_stimulus_display ()
+                }
+
+                goto ( 
+                    target = 'Reward' 
+                    when = (training_stage == 3) 
+                    )
 
                 goto (
                     target = 'Response'
+                    when = (training_stage >= 4)
                     )
             }
 
@@ -406,10 +483,15 @@ protocol 'Face_YN_2AFC' {
                     when = on_nontarget
                     )
                 timer_expired (
-                    target = 'Bad'
+                    target = 'Timeout_Router'
                     timer = timer_response
                     )
             }
+
+            state 'Timeout_Router' {
+                id_bad = 9
+                goto ('Bad') // Immediately transition to the main failure state
+                }
 
             state 'post_response' {
                 id_bad = 7
@@ -431,19 +513,42 @@ protocol 'Face_YN_2AFC' {
             }
 
             state 'Reward' {
+                correction_needed = 0 // Success! Move to a new trial.
+
                 // green
                 fix_red_static = 0
                 fix_blue_static = 0
 
                 labjack_target_on = 0
 
-                // dequeue_stimulus(correctDot)
                 dequeue_stimulus(wrongDot)
+                dequeue_stimulus(correctDot)
+                dequeue_stimulus(target_window)
+                dequeue_stimulus(nontarget_window)
+                dequeue_stimulus(noise_mask_fullscreen)
+                dequeue_stimulus(occluder_left)
+                dequeue_stimulus(occluder_right)
+                dequeue_stimulus(monkey_face)
+                dequeue_stimulus(monkey_scrambled)
+
+                if (training_stage == 4) {
+                    queue_stimulus(monkey_face)
+                }
+
                 update_stimulus_display ()
+
+                // UPDATE STATS
+                update_performance_metrics(1)
+                
+                // --- FIX: Ensure this is only called ONCE ---
+                update_contrast_success()
 
                 action/play_sound(success_sound)
 
                 report ('Success!: CorrectTrials = $CorrectTrials')
+                report ('Current contrast = $current_contrast')
+                // ------------------------------
+
                 tRew = now()
 
                 %ifdef monkey_ephys
@@ -488,14 +593,31 @@ protocol 'Face_YN_2AFC' {
                 report ('Trial Failed: id_bad = $id_bad')
                 tResponse= now()
 
-                if (id_bad==1 || id_bad==2 || id_bad==3 || id_bad==4){ // fixation number memory target
+                // --- 1. CHOICE ERROR LOGIC (id 6 or 9) ---
+                // This is the ONLY place update_contrast_failure should exist
+                if (id_bad == 6 || id_bad == 9) {
+                    if (correction_enabled == 1) {
+                        correction_needed = 1
+                        report('Correction flag SET: Same side next time')
+                    }
+                    update_performance_metrics(0)
+                    update_contrast_failure() 
+                }
+                
+                // --- 2. FIXATION ERROR LOGIC (id 1, 2, 3, 4, 5, 8) ---
+                if (id_bad < 6 || id_bad == 8) {
+                    correction_needed = 0
+                    report('Fixation break: Contrast preserved for next trial')
+                }
 
+                // --- 3. CLEANUP (Stimulus Removal) ---
+                // Consolidate all cleanup into one block for efficiency
+                if (id_bad <= 4 || id_bad == 8 || id_bad == 2 || id_bad == 3) {
                     index=0
                     while (index<number){
                         dequeue_stimulus(dots[index])
                         index=index+1
                     }
-
                     dequeue_stimulus(monkey_face)
                     dequeue_stimulus(monkey_scrambled)
                     dequeue_stimulus(occluder_left)
@@ -505,37 +627,45 @@ protocol 'Face_YN_2AFC' {
                     dequeue_stimulus(nontarget_window)
                     dequeue_stimulus(fixCircleStatic)
                     update_stimulus_display ()
-
-                    update_stimulus_display ()
                     labjack_target_on = 0
                     labjack_cue_on = 0
                 }
 
-                if (id_bad==5 || id_bad==6){ // fixoff response
-
-                    // red fixation
+                // --- 4. FEEDBACK (Sound and Visuals) ---
+                if (id_bad==5 || id_bad==6 || id_bad==9){
                     fix_green_static = 0
                     fix_blue_static = 0
-
                     dequeue_stimulus(correctDot)
-                    // dequeue_stimulus(wrongDot)
+                    dequeue_stimulus(wrongDot)
                     update_stimulus_display ()
-
                     labjack_cue_on = 1
-
                     action/play_sound(failure_sound)
+                }
 
+                // Stage 4 Visual Feedback for Choice Errors
+                if (id_bad == 6 && training_stage == 4) {
+                    queue_stimulus(monkey_scrambled)
+                    update_stimulus_display ()
+                    timeout = 1000
+                }
+
+                if (id_bad == 9 && training_stage == 4) {
+                    queue_stimulus(monkey_face)
+                    queue_stimulus(monkey_scrambled)
+                    update_stimulus_display ()
+                    timeout = 1000
                 }
                 
+                // --- 5. TIMEOUT TIMER ---
                 start_timer (
                     timer = timer_timeout
-                    duration = 200 // 2000
+                    duration = timeout
                     duration_units = ms
-                    )
+                )
                 timer_expired (
                     target = 'End Trial'
                     timer = timer_timeout
-                    )
+                )
             }
 
             state 'End Trial' {
@@ -578,11 +708,9 @@ protocol 'Face_YN_2AFC' {
                 update_stimulus_display()
                 
                 id_bad = 0
-
                 flag_response=0
                 targetWait=targetWait0
 
-                update_stimulus_display ()
                 labjack_target_on = 0
                 labjack_fix_off = 0
                 labjack_cue_on = 0

@@ -1,0 +1,69 @@
+group moving_dots{
+    var field_radius = 15
+    var dot_density = 2
+    var dot_size = 0.3
+    var speed = 2.0
+    var field_center_x = 0.0
+    var field_center_y = 0.0
+    var alpha_multiplier = 1.0
+    var direction = 0.0
+    var coherence = 0.8
+    var lifetime = 10000
+}
+
+
+////////////////
+// Stimulus
+////////////////
+
+stimulus_group moving_dots_group {
+    stimulus/moving_dots random_dot_motion (
+        field_radius = field_radius
+        dot_density = dot_density
+        dot_size = dot_size
+        speed = speed
+        field_center_x = field_center_x
+        field_center_y = field_center_y
+        alpha_multiplier = alpha_multiplier
+        direction = direction
+        coherence = coherence
+        lifetime = lifetime  // Keep the lifetime for 10 seconds
+        autoplay = YES
+    )
+}
+
+////////////////
+// Trial Protocol
+////////////////
+
+protocol moving_dots_display {
+    task Trial {
+        state 'Display' {
+            // Queue the moving_dots stimulus for display
+            live_queue_stimulus(random_dot_motion)
+            
+            // Force an update to make sure stimulus is drawn to the screen
+            update_stimulus_display()
+
+            start_timer (
+                timer = fixWait
+                duration = 100000
+                duration_units = ms
+                )
+            timer_expired (
+                target = 'End'
+                timer = fixWait
+                )
+
+
+            // Optionally, you can dequeue the stimulus after the trial ends
+            // live_dequeue_stimulus(random_dot_motion)
+        }
+
+        state 'End' {
+            // End the trial (no stimulus needed here)
+            // Transition back to the beginning or end the experiment
+            wait(0)
+        }
+    }
+}

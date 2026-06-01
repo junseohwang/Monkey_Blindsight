@@ -1,0 +1,277 @@
+// stimulus/image_file
+// path=/path/to/image.png
+
+resource ('image')
+
+stimulus/white_noise_background white_noise(
+    randomize_on_draw=YES
+)
+
+frame_list dynamic_noise (
+    loop = true
+    autoplay = true
+    ) {
+    white_noise_background (
+        randomize_on_draw = NO
+        )
+}
+
+group 'overlap_obj'{
+    stimulus/circle overlap_obj (
+            color = overlap_red,overlap_green,overlap_blue
+            x_size = overlap_sz
+            y_size = overlap_sz
+            x_position = grapeX
+            y_position = grapeY
+            alpha_multiplier = overlap_alpha
+    )
+}
+
+group 'hint_obj'{
+    stimulus/circle hint_obj (
+            color = overlap_red,overlap_green,overlap_blue
+            x_size = overlap_sz
+            y_size = overlap_sz
+            x_position = grapeX
+            y_position = grapeY
+            alpha_multiplier = hint_alpha
+    )
+}
+
+frame_list memory_obj_list (
+    stimulus_group = memory_objs
+    loop = true
+    autoplay = true
+    )
+
+stimulus_group memory_objs {
+    stimulus/circle memory_obj (
+            color = overlap_red,overlap_green,overlap_blue
+            x_size = overlap_sz
+            y_size = overlap_sz
+            x_position = targetX
+            y_position = targetX
+            alpha_multiplier = 1 - ((next_frame_time()/1e3-start_time/1e3)/overlapTimeDur)
+    )
+}
+
+group 'target_window'{
+    stimulus/fixation_point target_window ( // circular_fixation_point
+            color = target_red,target_green,target_blue
+            trigger_width = target_win
+            trigger_watch_x = eye_x
+            trigger_watch_y = eye_y
+            trigger_flag = on_target
+            x_size = target_sz
+            y_size = target_sz
+            x_position = targetX
+            y_position = targetY
+            alpha_multiplier = target_alpha
+    )
+}
+
+group 'distractor_window'{
+    stimulus/fixation_point distractor_window ( // circular_fixation_point
+            color = target_red,target_green,target_blue
+            trigger_width = target_win 
+            trigger_watch_x = eye_x
+            trigger_watch_y = eye_y
+            trigger_flag = on_distractor
+            x_size = target_sz
+            y_size = target_sz
+            x_position = distractorX
+            y_position = distractorY
+            alpha_multiplier = target_alpha
+    )
+}
+
+group 'Fixation' {
+    stimulus/fixation_point fixCircleStatic ( // fixation_point
+            color = fix_red_static,fix_green_static,fix_blue_static
+            trigger_width = fix_win
+            trigger_watch_x = eye_x
+            trigger_watch_y = eye_y
+            trigger_flag = on_fix_static
+            x_size = fix_sz
+            y_size = fix_sz
+            x_position = fixX
+            y_position = fixY-fixY_offset
+            rotation = 0
+            alpha_multiplier = fix_alpha
+    )
+}
+
+group 'Photodiode'{
+        stimulus/ellipse photodiode(
+        color = photodiode_red,photodiode_green,photodiode_blue
+        x_size = photodiode_size
+        y_size = photodiode_size
+        x_position = photodiodeX
+        y_position = photodiodeY
+        rotation = 0
+        alpha_multiplier = 1
+    )
+}
+
+iodevice/stimulus_display( // % distance 66, width 53, height 30 cm -> atand(height/2/distance)*2; % 25.6 deg
+    background_color = 0,0,0
+    )
+
+blank_screen background_screen(
+    color = background_color,background_color,background_color
+    )
+
+frame_list wedges_list (
+    stimulus_group = wedges
+    loop = YES
+    autoplay = YES
+    )
+
+stimulus_group wedges {
+    image_file wedge (
+        path = 'image/wedge.png'
+        x_size = wedge_sizex
+        y_size = wedge_sizey
+        rotation = (now() / 1e6) * wedge_rotation_speed
+        deferred = NO
+        )
+}
+
+image_file wedge_static (
+    path = 'image/wedge.png' // 'stimuli/hm.png'
+    x_size = wedge_sizex
+    y_size = wedge_sizey
+    rotation = (now() / 1e6) * wedge_rotation_speed
+    deferred = NO
+    )
+
+circle inner_mask (
+    color = 0.5,0.5,0.5
+    x_size = innermask_size
+    y_size = innermask_size
+    rotation = 0
+    )
+
+frame_list checkerboards_list (
+    stimulus_group = checkerboards
+    loop = YES
+    autoplay = YES
+    )
+
+stimulus_group checkerboards {
+    image_file checkerboard (
+        path = 'image/checkerboard.png' // was checkerboard2 for partial_wedge
+        x_size = checkerboard_size
+        y_size = checkerboard_size
+        rotation = (now() / 1e6) * checkerboard_rotation_speed
+        deferred = NO
+        alpha_multiplier = 1
+        )
+}
+
+stimulus/text wait_for_TTL (
+    text='WAIT FOR TTL ("S")'
+    font_name="Helvetica Neue"
+    font_size=64
+
+    color = 0, 0, 0
+    text_alignment = center
+    x_size = 15
+    y_size = 3
+    rotation = 0
+    x_position = 0
+    y_position = -5
+    alpha_multiplier = 1
+)
+
+// MGS
+stimulus_group 'grape'{
+    stimulus/ellipse grape1 ( // below
+            color = cue_red,cue_green,cue_blue
+            x_size = circle_size
+            y_size = circle_size
+            x_position = grapeX
+            y_position = grapeY-within_distance
+            rotation = 0
+            alpha_multiplier = cue_alpha
+    )
+    stimulus/ellipse grape2 ( // up left
+            color = cue_red,cue_green,cue_blue
+            x_size = circle_size
+            y_size = circle_size
+            x_position = grapeX - within_distance*cos(30/180*pi())
+            y_position = grapeY + within_distance*sin(30/180*pi())
+            rotation = 0
+            alpha_multiplier = cue_alpha
+    )
+
+    stimulus/ellipse grape3 ( // up right
+            color = cue_red,cue_green,cue_blue
+            x_size = circle_size
+            y_size = circle_size
+            x_position = grapeX + within_distance*cos(30/180*pi())
+            y_position = grapeY + within_distance*sin(30/180*pi())
+            rotation = 0
+            alpha_multiplier = cue_alpha
+    )
+
+}
+
+stimulus_group 'bananas' {
+    stimulus/text banana (
+        text=')'
+        font_name="Capitals"
+        font_size=64
+        color = object_red,object_green,object_blue
+        text_alignment = center
+        x_size = object_sz
+        y_size = object_sz
+        rotation = -45
+        x_position = bananaX
+        y_position = bananaY
+        alpha_multiplier = cue_alpha
+    )
+}
+
+
+
+///////// Eye-calibration 
+group 'Global' {
+    white_noise_background 'White Noise Background' ()
+    blank_screen 'New Blank Screen' (color = 0,0,0)
+}
+group 'Fixation+Pursuit 2' {
+    frame_list dynamicFix (
+        stimulus_group = dynamicFixFrames
+        loop = YES
+        autoplay = YES
+        )
+    stimulus_group dynamicFixFrames {
+        circular_fixation_point fixCircleDyn (
+            color = fix_pur_red,fix_pur_green,fix_pur_blue
+            trigger_width = fix_pur_win
+            trigger_watch_x = eye_x
+            trigger_watch_y = eye_y
+            trigger_flag = on_fix_dyn
+            x_size = fix_pur_sz
+            y_size = fix_pur_sz
+            x_position = fix_pur_X+cos(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
+            y_position = fix_pur_Y+sin(pursuitTheta*pi()/180)*fixDynMag*sin(2*pi()*fixHz*(nextFrameTime() - tStart)/1e6)
+            rotation = 0
+            alpha_multiplier = 1
+            )
+    }
+}
+
+circular_fixation_point fixation_point (
+    trigger_width = fixation_width
+    trigger_watch_x = eye_x
+    trigger_watch_y = eye_y
+    trigger_flag = eye_on_fixation_point
+    //color = 0,0,0                                               //Y: was 1,0,0
+    color = fixation_point_r, fixation_point_g, fixation_point_b  //Y: added this so we can send to blackrock
+    x_size = fixation_point_size
+    x_position = fixation_pos_x
+    y_position = fixation_pos_y
+    )
+

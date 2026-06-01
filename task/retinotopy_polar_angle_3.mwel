@@ -1,0 +1,645 @@
+
+/*  
+Retinotopy Mapping — Polar Angle (Rotating Wedge)
+==================================================
+Uses wedge-shaped checkerboard stimuli (Option B: no separate mask layer).
+Two polarity images alternate at flicker_freq Hz for contrast reversal.
+
+Run structure:
+  1. Wait for TTL
+  2. Initial blank (10s) — scanner warmup + fixation stabilization
+  3. Continuous rotation for n_cycles × cycle_period seconds
+  4. Done (yields back to MWorks)
+
+Direction is set by the "direction" variable:
+  +1 = clockwise (CW)
+  -1 = counter-clockwise (CCW)
+
+Scanning version:
+  - Fixed fixation hold duration (no staircase)
+  - Continuous run, no rest blocks (wedge itself creates on/off per voxel)
+  - Run separate CW and CCW runs, average with reversal in analysis
+
+Image files required in 'stimuli/' folder:
+  - wedge_checkerboard_A.png  (polarity A)
+  - wedge_checkerboard_B.png  (polarity B, contrast-inverted)
+*/
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Choose platform
+//
+///////////////////////////////////////////////////////////////////////////////
+
+var subject = 'monkey' //'human'
+//%define human
+%define monkey
+
+//%define laptop
+// %define psychophysics
+%define monkey_train
+// %define monkey_ephys // labjack photodiode
+
+//var platform = 'laptop' // mouse keyboard
+// var platform = 'psychophysics' // human
+var platform = 'monkey_train' // eyelink keyboard
+// var platform = 'monkey_ephys'
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// I/O Devices
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%ifdef laptop
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/mouse'
+%end
+
+%ifdef psychophysics
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+%end
+
+%ifdef monkey_train
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/firmata_train'
+%end
+
+%ifdef monkey_ephys
+    %include 'hand_interfaces/keyboard'
+    %include 'eye_interfaces/eyelink'
+    %include 'reward_interfaces/labjack'
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Sounds
+//
+///////////////////////////////////////////////////////////////////////////////
+
+resource ('sounds')
+sound/wav_file success_sound ('sounds/success.wav')
+
+///////////////////////////////////////////////////////////////////////////////
+// Data file
+///////////////////////////////////////////////////////////////////////////////
+var pwd = ""
+var python_site_packages = ""
+python_file ('set_pwd.py')
+python_file ('set_stimuli.py')
+
+// Filename structure:
+//   [date]/mworks/[timestamp]_retinotopy_polar_dir[+1 or -1].mwk2
+// Each run is uniquely identified by:
+//   - date folder (groups by day)
+//   - timestamp (groups by session, unique to the second)
+//   - task name (polar vs ring)
+//   - direction (+1 CW / -1 CCW)
+data_file ("$pwd/logs/$(date('%Y_%m_%d'))/mworks/$(date('%Y_%m_%d_%H_%M_%S'))_retinotopy_polar_dir${direction}")
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Retinotopy Parameters  (EDIT THESE)
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'Retinotopy Parameters' {
+
+    // --- Direction ---
+    var direction = 1           // +1 = CW,  -1 = CCW
+                                // Change in MWorks variable panel before each run
+
+    // --- Timing ---
+    var initial_blank = 10      // seconds of blank after TTL before stimulus starts
+                                // scanner warmup + monkey fixation stabilization
+    var cycle_period = 40       // seconds for one full 360° rotation
+    var n_cycles = 8            // number of full rotations
+
+    // Derived: do not edit directly
+    var rotation_speed = 360.0 / cycle_period   // deg/s (= 9 for 40s cycle)
+    var run_duration = n_cycles * cycle_period   // seconds total (= 320)
+
+    // --- Stimulus geometry ---
+    var stimulus_diameter = 24.0   // degrees (= 2 × outer_radius of wedge)
+
+    // --- Flicker ---
+    var flicker_freq = 4        // Hz (contrast reversal frequency)
+
+    // --- Background ---
+    var bg_color = 0.22         // background luminance (gray)
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Fixation & Reward Parameters
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'Fixation' {
+    var fixX = 0
+    var fixY = 0
+
+    var fix_sz = 0.5            // fixation dot diameter (degrees)
+    var fix_win = 8             // fixation window diameter (degrees)
+                                // Use ~8 for training, ~2-3 for scanning
+
+    var fix_red_static = 1
+    var fix_green_static = 0
+    var fix_blue_static = 0
+    var fix_alpha = 1
+
+    var on_fix_static = 0       // set by fixation_point trigger
+
+    var fixWaitDur = 10000      // max wait for initial fixation (ms)
+    var fixTimeDur = 1000       // fixed hold duration for reward (ms)
+                                // No staircase during scanning — keep consistent
+                                // Adjust based on what monkey can reliably do
+}
+
+group 'Reward' {
+    var reward_line = 0
+    var rewardDur = 300         // juice duration per reward (ms)
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// State tracking variables
+//
+///////////////////////////////////////////////////////////////////////////////
+
+group 'State' {
+    var t_stim_start = 0        // timestamp when stimulus started
+    var rotation_speed_current = 9
+    var pstop = 0               // manual stop flag
+    // TTL is defined in hand_interfaces/keyboard
+
+    var localTrials = 0
+    var CorrectTrials = 0
+    var IncorrectTrials = 0
+    var startTrial = 0
+    var endTrial = 0
+    var id_bad = 0
+
+    var tStart = 0
+    var tFix = 0
+    var tRew = 0
+    var tEnd = 0
+    var tResponse = 0
+
+    var total_fix_ms  = 0      // accumulated fixated time during run (ms)
+    var fix_ratio     = 0.0    // fixated / elapsed
+    var elapsed_s     = 0.0
+}
+
+group 'Matlab' {
+    var sync = 0 (groups = Matlab)
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stimuli
+//
+///////////////////////////////////////////////////////////////////////////////
+
+resource ('stimuli')
+
+iodevice/stimulus_display (
+    background_color = bg_color, bg_color, bg_color
+)
+
+blank_screen background_screen (
+    color = bg_color, bg_color, bg_color
+)
+
+frame_list wedge_A_list (
+    stimulus_group = wedge_A_group
+    loop = YES
+    autoplay = YES
+)
+
+stimulus_group wedge_A_group {
+    image_file wedge_A (
+        path = 'stimuli/wedge_checkerboard_A.png'
+        x_size = stimulus_diameter
+        y_size = stimulus_diameter
+        x_position = 0
+        y_position = 0
+        rotation = ((now() - t_stim_start) / 1e6) * rotation_speed_current
+        alpha_multiplier = 1 - (floor((now() - t_stim_start) / 1e6 * flicker_freq * 2) % 2)
+        deferred = NO
+    )
+}
+
+frame_list wedge_B_list (
+    stimulus_group = wedge_B_group
+    loop = YES
+    autoplay = YES
+)
+
+stimulus_group wedge_B_group {
+    image_file wedge_B (
+        path = 'stimuli/wedge_checkerboard_B.png'
+        x_size = stimulus_diameter
+        y_size = stimulus_diameter
+        x_position = 0
+        y_position = 0
+        rotation = ((now() - t_stim_start) / 1e6) * rotation_speed_current
+        alpha_multiplier = (floor((now() - t_stim_start) / 1e6 * flicker_freq * 2) % 2)
+        deferred = NO
+    )
+}
+
+stimulus/fixation_point fixCircleStatic (
+    color = fix_red_static, fix_green_static, fix_blue_static
+    trigger_width = fix_win
+    trigger_watch_x = eye_x
+    trigger_watch_y = eye_y
+    trigger_flag = on_fix_static
+    x_size = fix_sz
+    y_size = fix_sz
+    x_position = fixX
+    y_position = fixY
+    rotation = 0
+    alpha_multiplier = fix_alpha
+)
+
+stimulus/text wait_for_TTL (
+    text = 'WAIT FOR TTL ("S")'
+    font_name = "Helvetica Neue"
+    font_size = 64
+    color = 1, 1, 1
+    text_alignment = center
+    x_size = 15
+    y_size = 3
+    x_position = 0
+    y_position = -5
+    alpha_multiplier = 1
+)
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Helper macros
+//
+///////////////////////////////////////////////////////////////////////////////
+
+%define check_run_timeout ()
+    goto (
+        target = 'Run End'
+        when = ((now() - t_stim_start) / 1e6) >= run_duration
+    )
+%end
+
+%define check_warmup_done ()
+    timer_expired (
+        target = 'Start Run'
+        timer = warmup_timer
+    )
+%end
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Protocol
+//
+///////////////////////////////////////////////////////////////////////////////
+
+protocol 'Retinotopy_PolarAngle' {
+    start_device_io (eye_tracker)
+    start_device_io (hand)
+
+    queue_stimulus (background_screen)
+    update_stimulus_display ()
+
+    task RetinotopyTask {
+
+        // ============================================================
+        // WAIT FOR SCANNER
+        // ============================================================
+
+        state 'Initial' {
+            localTrials = 0
+            CorrectTrials = 0
+            IncorrectTrials = 0
+
+            total_fix_ms = 0
+            fix_ratio    = 0.0
+            elapsed_s    = 0.0
+
+            rotation_speed_current = direction * rotation_speed
+
+            report ('=== Polar angle: direction=$direction, speed=$rotation_speed_current deg/s ===')
+            report ('=== $initial_blank s warmup, then $n_cycles cycles x $cycle_period s = $run_duration s ===')
+
+            queue_stimulus (wait_for_TTL)
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto (
+                target = 'Warmup'
+                when = TTL
+            )
+        }
+
+        // ============================================================
+        // WARMUP — blank with fixation, no stimulus
+        // ============================================================
+
+state 'Warmup' {
+            report ('=== Warmup started ===')
+            dequeue_stimulus (wait_for_TTL)
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+            fix_alpha = 1
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            start_timer (
+                timer = warmup_timer
+                duration = initial_blank * 1000
+                duration_units = ms
+            )
+            goto ('Warmup Fix On')
+        }
+
+        state 'Warmup Fix On' {
+            reward_line = false          // ← add this
+            fix_red_static = 1
+            fix_green_static = 0
+            fix_blue_static = 0
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            goto (
+                target = 'Warmup Static Fix'
+                when = on_fix_static
+            )
+            timer_expired (
+                target = 'Warmup Fix On'
+                timer = fixWait
+            )
+        }
+
+        state 'Warmup Static Fix' {
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            goto (
+                target = 'Warmup Fix On'
+                when = !on_fix_static
+            )
+            timer_expired (
+                target = 'Warmup Reward'
+                timer = StaticFixWait
+            )
+        }
+
+        state 'Warmup Reward' {
+            fix_red_static = 0
+            fix_green_static = 1
+            fix_blue_static = 0
+            CorrectTrials = CorrectTrials + 1
+            reward_line = true
+
+            start_timer (
+                timer = RewardTimer
+                duration = rewardDur
+                duration_units = ms
+            )
+            check_warmup_done ()
+            timer_expired (
+                target = 'Warmup Fix On'
+                timer = RewardTimer
+            )
+        }
+
+        // ============================================================
+        // START STIMULUS
+        // ============================================================
+
+        state 'Start Run' {
+            report ('=== Stimulus started ===')
+
+            t_stim_start = now()
+
+            live_queue_stimulus (wedge_A_list)
+            live_queue_stimulus (wedge_B_list)
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto ('Fix On')
+        }
+
+        // ============================================================
+        // RUN ENDED -> DONE
+        // ============================================================
+
+        state 'Run End' {
+            report ('=== Run ended: $CorrectTrials correct / $localTrials trials ===')
+
+            dequeue_stimulus (wedge_A_list)
+            dequeue_stimulus (wedge_B_list)
+            dequeue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            goto ('Exit System')
+        }
+
+        // ============================================================
+        // FIXATION MONITORING
+        // ============================================================
+
+        state 'Fix On' {
+            sync = 0
+            sync = 1
+
+            fix_red_static = 1
+            fix_green_static = 0
+            fix_blue_static = 0
+            fix_alpha = 1
+
+            live_queue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            tStart = now()
+            startTrial = 1
+            id_bad = 0
+
+            start_timer (
+                timer = fixWait
+                duration = fixWaitDur
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            goto (
+                target = 'Static Fix'
+                when = on_fix_static
+            )
+
+            timer_expired (
+                target = 'Failure to fixate'
+                timer = fixWait
+            )
+        }
+
+        state 'Static Fix' {
+            localTrials = localTrials + 1
+            tFix = now()
+            id_bad = 1
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+
+            start_timer (
+                timer = StaticFixWait
+                duration = fixTimeDur  // fixed, no staircase
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            goto (
+                target = 'Bad'
+                when = !on_fix_static
+            )
+
+            timer_expired (
+                target = 'Reward'
+                timer = StaticFixWait
+            )
+        }
+
+        state 'Reward' {
+            fix_red_static = 0
+            fix_green_static = 1
+            fix_blue_static = 0
+
+            report ('Reward! CorrectTrials = $CorrectTrials')
+            tRew = now()
+
+            CorrectTrials = CorrectTrials + 1
+            reward_line = true
+            total_fix_ms = total_fix_ms + fixTimeDur
+
+            start_timer (
+                timer = RewardTimer
+                duration = rewardDur
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            timer_expired (
+                target = 'End Trial'
+                timer = RewardTimer
+            )
+        }
+
+        state 'End Trial' {
+            tEnd = now()
+            reward_line = false
+            endTrial = endTrial + 1
+
+            fix_red_static = 1
+            fix_green_static = 1
+            fix_blue_static = 1
+            fix_alpha = 1
+            id_bad = 0
+
+            elapsed_s = (now() - t_stim_start) / 1e6
+            if (elapsed_s > 0) {
+                fix_ratio = total_fix_ms / 1000.0 / elapsed_s
+            }
+            report ('Fix: $CorrectTrials rewards | $localTrials trials | Ratio: $fix_ratio | Elapsed: $elapsed_s s')
+
+            update_stimulus_display ()
+
+            check_run_timeout ()
+
+            goto (
+                target = 'Exit System'
+                when = pstop
+            )
+
+            goto ('Fix On')
+        }
+
+        // ============================================================
+        // FIXATION FAILURES
+        // ============================================================
+
+        state 'Failure to fixate' {
+            report ('No fixation acquired')
+
+            fix_alpha = 0
+            update_stimulus_display ()
+
+            start_timer (
+                timer = NoFixWait
+                duration = 500
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            timer_expired (
+                target = 'End Trial'
+                timer = NoFixWait
+            )
+        }
+
+        state 'Bad' {
+            report ('Fixation break: id_bad = $id_bad')
+            tResponse = now()
+
+            fix_alpha = 0
+            update_stimulus_display ()
+
+            start_timer (
+                timer = BadTimer
+                duration = 500
+                duration_units = ms
+            )
+
+            check_run_timeout ()
+
+            timer_expired (
+                target = 'End Trial'
+                timer = BadTimer
+            )
+        }
+
+        // ============================================================
+        // EXIT
+        // ============================================================
+
+        state 'Exit System' {
+            report ('=== Retinotopy complete ===')
+            report ('Correct: $CorrectTrials / Local: $localTrials')
+
+            dequeue_stimulus (wedge_A_list)
+            dequeue_stimulus (wedge_B_list)
+            dequeue_stimulus (fixCircleStatic)
+            update_stimulus_display ()
+
+            yield ()
+        }
+    }
+}
